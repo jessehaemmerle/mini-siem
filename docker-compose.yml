@@ -2,15 +2,15 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-siem}
-      POSTGRES_USER: ${POSTGRES_USER:-siem}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-siem_dev_password}
+      POSTGRES_DB: ${MINI_SIEM_POSTGRES_DB:-siem}
+      POSTGRES_USER: ${MINI_SIEM_POSTGRES_USER:-siem}
+      POSTGRES_PASSWORD: ${MINI_SIEM_POSTGRES_PASSWORD:-siem_dev_password}
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-siem} -d ${POSTGRES_DB:-siem}"]
+      test: ["CMD-SHELL", "pg_isready -U ${MINI_SIEM_POSTGRES_USER:-siem} -d ${MINI_SIEM_POSTGRES_DB:-siem}"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -65,7 +65,7 @@ services:
       context: .
       dockerfile: backend/Dockerfile
     environment:
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-siem}:${POSTGRES_PASSWORD:-siem_dev_password}@postgres:5432/${POSTGRES_DB:-siem}
+      DATABASE_URL: postgresql+psycopg://${MINI_SIEM_POSTGRES_USER:-siem}:${MINI_SIEM_POSTGRES_PASSWORD:-siem_dev_password}@postgres:5432/${MINI_SIEM_POSTGRES_DB:-siem}
       REDIS_URL: redis://redis:6379/0
       OPENSEARCH_URL: http://opensearch:9200
       JWT_SECRET: ${JWT_SECRET:-dev-change-me-super-long-secret}
@@ -93,7 +93,7 @@ services:
       dockerfile: backend/Dockerfile
     command: celery -A app.workers.celery_app.celery_app worker --beat --loglevel=INFO
     environment:
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-siem}:${POSTGRES_PASSWORD:-siem_dev_password}@postgres:5432/${POSTGRES_DB:-siem}
+      DATABASE_URL: postgresql+psycopg://${MINI_SIEM_POSTGRES_USER:-siem}:${MINI_SIEM_POSTGRES_PASSWORD:-siem_dev_password}@postgres:5432/${MINI_SIEM_POSTGRES_DB:-siem}
       REDIS_URL: redis://redis:6379/0
       OPENSEARCH_URL: http://opensearch:9200
       JWT_SECRET: ${JWT_SECRET:-dev-change-me-super-long-secret}
@@ -108,7 +108,7 @@ services:
       dockerfile: backend/Dockerfile
     command: sh -c "python ../scripts/seed_demo_data.py && python ../scripts/import_demo_logs.py && python ../scripts/run_detection_once.py"
     environment:
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-siem}:${POSTGRES_PASSWORD:-siem_dev_password}@postgres:5432/${POSTGRES_DB:-siem}
+      DATABASE_URL: postgresql+psycopg://${MINI_SIEM_POSTGRES_USER:-siem}:${MINI_SIEM_POSTGRES_PASSWORD:-siem_dev_password}@postgres:5432/${MINI_SIEM_POSTGRES_DB:-siem}
       REDIS_URL: redis://redis:6379/0
       OPENSEARCH_URL: http://opensearch:9200
       JWT_SECRET: ${JWT_SECRET:-dev-change-me-super-long-secret}

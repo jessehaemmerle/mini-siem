@@ -35,6 +35,13 @@ docker compose up --build
 
 Die Initialisierung laeuft automatisch ueber den Service `demo-init`: Schema, Demo-Mandant, Demo-User, Quellen, API-Key, IOCs, Detection Rules, Demo-Logs und ein erster Detection-Lauf.
 
+Wenn PostgreSQL mit `password authentication failed for user "siem"` startet, passt das bestehende Docker-Volume nicht zu den aktuellen Zugangsdaten. Fuer eine frische lokale Demo kann es geloescht und neu initialisiert werden:
+
+```bash
+docker compose down -v
+docker compose up --build
+```
+
 Nach dem Start:
 
 - Frontend: http://localhost:8080
