@@ -42,6 +42,13 @@ docker compose down -v
 docker compose up --build
 ```
 
+Wenn die bestehenden PostgreSQL-Daten erhalten bleiben sollen, kann stattdessen das Passwort im laufenden Container auf den Compose-Standard zurueckgesetzt werden:
+
+```bash
+docker compose exec -u postgres postgres psql -U siem -d siem -c "ALTER USER siem WITH PASSWORD 'siem_dev_password';"
+docker compose up --build
+```
+
 Nach dem Start:
 
 - Frontend: http://localhost:8080
