@@ -1,0 +1,159 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-siem}
+      POSTGRES_USER: ${POSTGRES_USER:-siem}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-siem_dev_password}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-siem} -d ${POSTGRES_DB:-siem}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  opensearch:
+    image: opensearchproject/opensearch:2.17.1
+    environment:
+      discovery.type: single-node
+      bootstrap.memory_lock: "true"
+      OPENSEARCH_JAVA_OPTS: "-Xms512m -Xmx512m"
+      DISABLE_SECURITY_PLUGIN: "true"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    ports:
+      - "9200:9200"
+    volumes:
+      - opensearch_data:/usr/share/opensearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:9200/_cluster/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+
+  opensearch-dashboards:
+    image: opensearchproject/opensearch-dashboards:2.17.1
+    environment:
+      OPENSEARCH_HOSTS: '["http://opensearch:9200"]'
+      DISABLE_SECURITY_DASHBOARDS_PLUGIN: "true"
+    ports:
+      - "5601:5601"
+    depends_on:
+      opensearch:
+        condition: service_healthy
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-siem}:${POSTGRES_PASSWORD:-siem_dev_password}@postgres:5432/${POSTGRES_DB:-siem}
+      REDIS_URL: redis://redis:6379/0
+      OPENSEARCH_URL: http://opensearch:9200
+      JWT_SECRET: ${JWT_SECRET:-dev-change-me-super-long-secret}
+      API_KEY_HASH_SECRET: ${API_KEY_HASH_SECRET:-dev-change-me-api-key-pepper}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://localhost:8080}
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      opensearch:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:8000/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: celery -A app.workers.celery_app.celery_app worker --beat --loglevel=INFO
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-siem}:${POSTGRES_PASSWORD:-siem_dev_password}@postgres:5432/${POSTGRES_DB:-siem}
+      REDIS_URL: redis://redis:6379/0
+      OPENSEARCH_URL: http://opensearch:9200
+      JWT_SECRET: ${JWT_SECRET:-dev-change-me-super-long-secret}
+      API_KEY_HASH_SECRET: ${API_KEY_HASH_SECRET:-dev-change-me-api-key-pepper}
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  demo-init:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: sh -c "python ../scripts/seed_demo_data.py && python ../scripts/import_demo_logs.py && python ../scripts/run_detection_once.py"
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-siem}:${POSTGRES_PASSWORD:-siem_dev_password}@postgres:5432/${POSTGRES_DB:-siem}
+      REDIS_URL: redis://redis:6379/0
+      OPENSEARCH_URL: http://opensearch:9200
+      JWT_SECRET: ${JWT_SECRET:-dev-change-me-super-long-secret}
+      API_KEY_HASH_SECRET: ${API_KEY_HASH_SECRET:-dev-change-me-api-key-pepper}
+    depends_on:
+      backend:
+        condition: service_healthy
+      opensearch:
+        condition: service_healthy
+    restart: "no"
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    ports:
+      - "8080:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  syslog-receiver:
+    build:
+      context: .
+      dockerfile: syslog-receiver/Dockerfile
+    environment:
+      BACKEND_URL: http://backend:8000
+      SYSLOG_API_KEY: ${SYSLOG_API_KEY:-siem_demo_ingest_key_change_me}
+      SYSLOG_UDP_PORT: 5514
+    ports:
+      - "5514:5514/udp"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  fluent-bit:
+    image: fluent/fluent-bit:3.2
+    profiles: ["fluent-bit"]
+    volumes:
+      - ./fluent-bit/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro
+      - ./fluent-bit/demo.log:/var/log/demo.log:ro
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  opensearch_data:
