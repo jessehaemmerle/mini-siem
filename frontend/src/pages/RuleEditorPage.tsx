@@ -3,11 +3,32 @@ import { FormEvent, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { JsonViewer } from '../components/JsonViewer';
-import type { DetectionRule } from '../types';
+import type { DetectionRule, Severity } from '../types';
 
-const emptyRule = {
+type RuleDraft = {
+  name: string;
+  description: string;
+  enabled: boolean;
+  condition_type: string;
+  severity: Severity;
+  risk_score: number;
+  timeframe_minutes: number;
+  threshold: number;
+  group_by: string[];
+  query_definition: Record<string, unknown>;
+  mitre_tactic: string;
+  mitre_technique: string;
+  mitre_technique_id: string;
+  false_positive_notes: string;
+  response_recommendation: string;
+};
+
+type EditableRule = DetectionRule | RuleDraft;
+
+const emptyRule: RuleDraft = {
   name: '',
   description: '',
+  enabled: true,
   condition_type: 'match',
   severity: 'medium',
   risk_score: 50,
@@ -15,6 +36,11 @@ const emptyRule = {
   threshold: 1,
   group_by: [],
   query_definition: { fields: { event_action: 'login_failed' } },
+  mitre_tactic: '',
+  mitre_technique: '',
+  mitre_technique_id: '',
+  false_positive_notes: '',
+  response_recommendation: '',
 };
 
 export function RuleEditorPage() {
@@ -22,10 +48,10 @@ export function RuleEditorPage() {
   const navigate = useNavigate();
   const isNew = ruleId === 'new';
   const [json, setJson] = useState(JSON.stringify(emptyRule, null, 2));
-  const [data, setData] = useState<DetectionRule>(emptyRule as DetectionRule);
+  const [data, setData] = useState<EditableRule>(emptyRule);
   useEffect(() => {
     if (isNew) {
-      setData(emptyRule as DetectionRule);
+      setData(emptyRule);
       setJson(JSON.stringify(emptyRule, null, 2));
       return;
     }
