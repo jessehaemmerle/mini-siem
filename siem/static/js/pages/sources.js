@@ -2,11 +2,11 @@ import { api } from '../api.js';
 import { quoteValue } from './search.js';
 import { clear, codeBlock, confirmDialog, copyText, dialog, empty, field, fmt, h, toast } from '../ui.js';
 
-const INPUT_LABELS = { syslog: 'Syslog', http: 'HTTP/JSON', hec: 'Docker / HEC' };
+const INPUT_LABELS = { syslog: 'Syslog', http: 'HTTP/JSON', hec: 'Docker (HEC)' };
 
 function tabs(ctx, active) {
   const items = [['', 'Verbundene Quellen'], ['setup', 'Neue Quelle anbinden']];
-  if (ctx.can('admin')) items.push(['tokens', 'Ingest-Tokens']);
+  if (ctx.can('admin')) items.push(['tokens', 'Sende-Tokens']);
   return h('nav', { class: 'tabs', 'aria-label': 'Bereiche' }, items.map(([k, l]) =>
     h('a', { href: `#/sources${k ? `/${k}` : ''}`, class: ['tab', k === active && 'active'], 'aria-current': k === active ? 'page' : null }, l)));
 }
@@ -37,19 +37,22 @@ async function renderList(main, ctx) {
       ? `${fmt.num(d.sources.length)} Quellen, davon ${fmt.num(silent)} seit über ${d.silent_minutes} Minuten ohne neue Logs. Stille Quellen können auf einen Ausfall oder eine geänderte Konfiguration hinweisen.`
       : `${fmt.num(d.sources.length)} Quellen, alle haben in den letzten ${d.silent_minutes} Minuten Logs gesendet.` }),
     h('div', { class: 'table-scroll' }, h('table', { class: 'table' },
-      h('thead', {}, h('tr', {}, h('th', { text: 'Host' }), h('th', { text: 'Eingang' }), h('th', { text: 'Absender-IP' }),
-        h('th', { text: 'Zuletzt' }), h('th', { text: 'Zuerst gesehen' }), h('th', { class: 'num', text: 'Events' }),
-        h('th', { text: 'Status' }), h('th', {}))),
-      h('tbody', {}, d.sources.map((s) => h('tr', { class: s.silent ? 'row-warn' : null },
-        h('td', {}, h('a', { href: `#/search?${new URLSearchParams({ q: `host:${quoteValue(s.host)}`, range: '24h' })}`, text: s.host })),
+      h('caption', { class: 'sr-only', text: 'Verbundene Quellen' }),
+      h('thead', {}, h('tr', {}, h('th', { text: 'Status' }), h('th', { text: 'Host' }), h('th', { text: 'Eingang' }),
+        h('th', { text: 'Absender-IP' }), h('th', { text: 'Letztes Event' }), h('th', { class: 'num', text: 'Events' }),
+        h('th', {}, h('span', { class: 'sr-only', text: 'Aktionen' })))),
+      h('tbody', {}, d.sources.map((s) => h('tr', {},
+        h('td', {}, h('span', { class: ['status', s.silent ? 'status-silent' : 'status-live'] }, s.silent ? 'Still' : 'Aktiv')),
+        h('td', {}, h('span', { class: 'cell-title', text: s.host }),
+          h('div', { class: 'cell-sub', text: `zuerst am ${fmt.time(s.first_seen)}` })),
         h('td', { text: INPUT_LABELS[s.input] || s.input }),
         h('td', { class: 'mono', text: s.source_ip || '–' }),
-        h('td', { title: fmt.time(s.last_seen), text: fmt.rel(s.last_seen) }),
-        h('td', { text: fmt.time(s.first_seen) }),
+        h('td', { class: 'nowrap', title: fmt.time(s.last_seen), text: fmt.rel(s.last_seen) }),
         h('td', { class: 'num', text: fmt.num(s.events) }),
-        h('td', {}, h('span', { class: ['status', s.silent ? 'status-silent' : 'status-live'] }, s.silent ? 'still' : 'aktiv')),
-        h('td', { class: 'row-actions' }, ctx.can('analyst') ? h('button', {
-          type: 'button', class: 'btn btn-small',
+        h('td', { class: 'row-actions' },
+          h('a', { class: 'btn btn-small btn-quiet', href: `#/search?${new URLSearchParams({ q: `host:${quoteValue(s.host)}`, range: '24h' })}` }, 'Events ansehen'),
+          ctx.can('analyst') ? h('span', { class: 'quick' }, h('button', {
+          type: 'button', class: 'btn btn-small btn-quiet btn-danger', 'aria-label': `${s.host} aus der Liste entfernen`,
           onclick: async () => {
             if (!(await confirmDialog('Quelle entfernen?', `„${s.host}“ wird aus der Liste entfernt. Gespeicherte Events bleiben erhalten; sendet die Quelle wieder, erscheint sie erneut.`, 'Entfernen'))) return;
             await api(`/api/sources/${s.id}`, { method: 'DELETE' });
@@ -58,7 +61,7 @@ async function renderList(main, ctx) {
             host.remove();
             renderList(main, ctx);
           },
-        }, 'Entfernen') : null)))))));
+        }, 'Entfernen')) : null)))))));
 }
 
 // ------------------------------------------------------------------ Anleitungen
@@ -198,7 +201,7 @@ async function renderSetup(main, ctx) {
 
   function drawToken() {
     clear(tokenBox).append(
-      h('p', {}, 'Für HTTP-Quellen (Windows, Docker, eigene Anwendungen) wird ein Ingest-Token benötigt. Syslog funktioniert ohne Token.'),
+      h('p', {}, 'Windows, Docker und eigene Anwendungen senden über HTTP und brauchen dafür ein Sende-Token. Syslog funktioniert ohne Token.'),
       conf.token.startsWith('siem_')
         ? h('p', {}, 'Das neue Token ist unten in allen Beispielen eingesetzt. Es wird nur jetzt angezeigt – bitte sicher aufbewahren.')
         : ctx.can('admin')
@@ -212,7 +215,7 @@ async function renderSetup(main, ctx) {
               drawGuides();
             },
           }, 'Token erstellen und in die Beispiele einsetzen')
-          : h('p', { class: 'muted' }, 'Ein Token kann nur ein Administrator erstellen (Quellen → Ingest-Tokens).'));
+          : h('p', { class: 'muted' }, 'Sende-Tokens kann nur ein Administrator erstellen (Quellen, Bereich Sende-Tokens).'));
   }
 
   function drawGuides() {
@@ -239,7 +242,7 @@ async function renderTokens(main) {
   const host = h('div');
   const nameIn = h('input', { placeholder: 'z. B. Docker-Host 1 oder Windows-Server', maxlength: 100 });
   main.append(
-    h('p', { class: 'lead', text: 'Ingest-Tokens berechtigen ausschließlich zum Senden von Logs. Verwenden Sie pro Standort oder Gerätegruppe ein eigenes Token, damit sich einzelne Zugänge gezielt sperren lassen.' }),
+    h('p', { class: 'lead', text: 'Sende-Tokens berechtigen ausschließlich zum Senden von Logs. Verwenden Sie pro Standort oder Gerätegruppe ein eigenes Token, damit sich einzelne Zugänge gezielt sperren lassen.' }),
     h('form', {
       class: 'inline-form',
       onsubmit: async (e) => {
@@ -260,10 +263,10 @@ async function renderTokens(main) {
   async function load() {
     const { tokens } = await api('/api/tokens');
     clear(host);
-    if (!tokens.length) { host.appendChild(empty('Noch keine Tokens', 'Erstellen Sie ein Token für die erste HTTP-Quelle.')); return; }
+    if (!tokens.length) { host.appendChild(empty('Noch keine Sende-Tokens', 'Erstellen Sie oben ein Token für die erste HTTP-Quelle.')); return; }
     host.appendChild(h('div', { class: 'table-scroll' }, h('table', { class: 'table' },
       h('thead', {}, h('tr', {}, h('th', { text: 'Name' }), h('th', { text: 'Beginnt mit' }), h('th', { text: 'Erstellt' }),
-        h('th', { text: 'Zuletzt verwendet' }), h('th', { class: 'num', text: 'Events' }), h('th', {}))),
+        h('th', { text: 'Zuletzt verwendet' }), h('th', { class: 'num', text: 'Events' }), h('th', {}, h('span', { class: 'sr-only', text: 'Aktionen' })))),
       h('tbody', {}, tokens.map((t) => h('tr', {},
         h('td', { text: t.name }),
         h('td', { class: 'mono', text: `${t.prefix}…` }),
@@ -271,7 +274,7 @@ async function renderTokens(main) {
         h('td', { text: fmt.rel(t.last_used) }),
         h('td', { class: 'num', text: fmt.num(t.events) }),
         h('td', { class: 'row-actions' }, h('button', {
-          type: 'button', class: 'btn btn-small btn-danger',
+          type: 'button', class: 'btn btn-small btn-quiet btn-danger', 'aria-label': `Token ${t.name} sperren`,
           onclick: async () => {
             if (!(await confirmDialog('Token sperren?', `Quellen mit dem Token „${t.name}“ können danach keine Logs mehr senden.`, 'Token sperren'))) return;
             await api(`/api/tokens/${t.id}`, { method: 'DELETE' });

@@ -59,12 +59,19 @@ export async function render(main, ctx) {
     placeholder: 'Suchen, z. B. host:web01 "Failed password" oder event_id:4625', 'aria-label': 'Suchabfrage',
   });
   const error = h('p', { class: 'query-error', role: 'alert' });
-  const help = h('div', { class: 'help hidden' },
+  const help = h('div', { class: 'help hidden', id: 'search-help' },
     h('table', { class: 'help-table' }, h('tbody', {}, HELP.map(([ex, txt]) =>
       h('tr', {}, h('td', {}, h('button', { type: 'button', class: 'linklike mono', onclick: () => { input.value = ex; run(); } }, ex)),
         h('td', { text: txt }))))),
     h('p', { class: 'hint', text: `Felder: ${Object.keys(FIELD_LABELS).filter((f) => !['ts', 'received'].includes(f)).join(', ')}. Schweregrade: ${SYSLOG_SEV.join(', ')} (0–7).` }));
   const live = h('input', { type: 'checkbox', id: 'live' });
+  const helpBtn = h('button', {
+    type: 'button', class: 'btn btn-quiet', 'aria-expanded': 'false', 'aria-controls': 'search-help',
+    onclick: () => {
+      const open = help.classList.toggle('hidden') === false;
+      helpBtn.setAttribute('aria-expanded', String(open));
+    },
+  }, 'Hilfe zur Suche');
   const rangeBox = h('span', { class: 'range-host' });
   const form = h('form', {
     class: 'searchbar', role: 'search',
@@ -83,7 +90,7 @@ export async function render(main, ctx) {
       h('th', { class: 'col-app', text: 'Anwendung' }), h('th', { class: 'col-sev', text: 'Schwere' }),
       h('th', { text: 'Nachricht' }))),
     tbody);
-  const more = h('button', { type: 'button', class: 'btn hidden', onclick: () => loadPage(false) }, 'Ältere Events laden');
+  const more = h('button', { type: 'button', class: 'btn hidden', onclick: () => loadPage(false) }, '100 ältere Events laden');
   const resultsHost = h('div', { class: 'results' }, h('div', { class: 'table-scroll' }, table), h('div', { class: 'more' }, more));
 
   function renderPicker() {
@@ -98,16 +105,15 @@ export async function render(main, ctx) {
   main.append(
     h('div', { class: 'page-head' },
       h('h1', { text: 'Suche' }),
-      h('div', { class: 'spacer' }),
-      h('label', { class: 'check', for: 'live' }, live, 'Automatisch aktualisieren'),
-      h('button', { type: 'button', class: 'btn btn-small', onclick: () => help.classList.toggle('hidden') }, 'Hilfe zur Suche')),
+      h('label', { class: 'check', for: 'live' }, live, 'Alle 10 Sekunden aktualisieren'),
+      helpBtn),
     form, error, help,
     h('div', { class: 'search-layout' },
       facetHost,
       h('div', { class: 'search-main' },
         h('div', { class: 'result-head' }, summary, h('div', { class: 'result-actions' },
           ctx.can('analyst') ? h('button', { type: 'button', class: 'btn btn-small', onclick: saveAsRule }, 'Als Regel speichern') : null,
-          h('button', { type: 'button', class: 'btn btn-small', onclick: exportCsv }, 'CSV exportieren'))),
+          h('button', { type: 'button', class: 'btn btn-small btn-quiet', onclick: exportCsv }, 'Als CSV exportieren'))),
         histHost, resultsHost)));
 
   function saveAsRule() {
@@ -151,6 +157,8 @@ export async function render(main, ctx) {
     const p = { q: query, from: range.from, to: range.to };
     const signal = controller.signal;
     summary.textContent = 'Suche läuft …';
+    summary.classList.add('busy');
+    histHost.querySelector('.chart')?.classList.add('loading');
     // Fehler werden erst unten ausgewertet – sonst gäbe es eine unbehandelte Ablehnung
     const histP = api('/api/events/histogram', { params: p, signal }).then((v) => ({ v }), (e) => ({ e }));
     try {
@@ -168,11 +176,12 @@ export async function render(main, ctx) {
     try {
       if (res.e) throw res.e;
       const hist = res.v;
+      summary.classList.remove('busy');
       summary.textContent = hist.total === 0 ? 'Keine Treffer'
         : `${fmt.num(hist.total)} Treffer`;
       clear(histHost).appendChild(timeChart({
-        start: hist.start, bucket: hist.bucket, height: 72,
-        series: [{ values: hist.counts, cls: 'bar' }],
+        start: hist.start, bucket: hist.bucket, height: 104, label: 'Treffer im Zeitverlauf',
+        series: [{ values: hist.counts, cls: 'c-events', color: '--chart-events', label: 'Treffer' }],
         onSelect: (f, t) => { tr = { from: f, to: t, key: 'custom' }; renderPicker(); run(); },
       }));
     } catch (e) {
@@ -189,7 +198,7 @@ export async function render(main, ctx) {
       if (r.status !== 'fulfilled' || !r.value.values.length) return;
       const f = FACETS[i];
       facetHost.appendChild(h('section', { class: 'facet' },
-        h('h3', { text: FIELD_LABELS[f] }),
+        h('h2', { text: FIELD_LABELS[f] }),
         h('ul', {}, r.value.values.map((v) => h('li', {},
           h('button', { type: 'button', class: 'facet-val', title: `Nur ${FIELD_LABELS[f]} = ${v.value}`, onclick: () => applyFilter(f, v.value) },
             h('span', { class: 'facet-label', text: f === 'severity' ? SYSLOG_SEV[v.value] : String(v.value) }),
@@ -214,8 +223,9 @@ export async function render(main, ctx) {
   }
 
   function row(ev) {
-    const tr1 = h('tr', { class: `ev ev-sev${ev.severity}`, tabindex: 0, 'aria-expanded': 'false' },
-      h('td', { class: 'col-time', text: fmt.time(ev.ts) }),
+    const btn = h('button', { type: 'button', class: 'ev-toggle', 'aria-expanded': 'false', title: 'Details anzeigen' }, fmt.time(ev.ts));
+    const tr1 = h('tr', { class: `ev ev-sev${ev.severity}` },
+      h('td', { class: 'col-time' }, btn),
       h('td', { class: 'col-host', text: ev.host || '–' }),
       h('td', { class: 'col-app', text: ev.app || '–' }),
       h('td', { class: 'col-sev' }, syslogSev(ev.severity)),
@@ -223,12 +233,12 @@ export async function render(main, ctx) {
     const detailRow = h('tr', { class: 'ev-detail hidden' }, h('td', { colspan: 5 }));
     const toggle = () => {
       const open = detailRow.classList.toggle('hidden') === false;
-      tr1.setAttribute('aria-expanded', String(open));
+      btn.setAttribute('aria-expanded', String(open));
       tr1.classList.toggle('open', open);
       if (open && !detailRow.firstChild.firstChild) detailRow.firstChild.appendChild(detail(ev));
     };
-    tr1.addEventListener('click', (e) => { if (!window.getSelection().toString()) toggle(e); });
-    tr1.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } });
+    btn.addEventListener('click', (e) => { e.stopPropagation(); toggle(); });
+    tr1.addEventListener('click', () => { if (!window.getSelection().toString()) toggle(); });
     return [tr1, detailRow];
   }
 
@@ -242,8 +252,8 @@ export async function render(main, ctx) {
         h('span', { class: 'mono', text: shown }),
         f !== 'ts' && f !== 'received'
           ? h('span', { class: 'kv-actions' },
-            h('button', { type: 'button', class: 'linklike', onclick: () => applyFilter(f, v) }, 'filtern'),
-            h('button', { type: 'button', class: 'linklike', onclick: () => applyFilter(f, v, true) }, 'ausschließen'))
+            h('button', { type: 'button', class: 'linklike', onclick: () => applyFilter(f, v), 'aria-label': `Nur ${FIELD_LABELS[f] || f} ${shown}` }, 'nur diesen Wert'),
+            h('button', { type: 'button', class: 'linklike', onclick: () => applyFilter(f, v, true), 'aria-label': `${FIELD_LABELS[f] || f} ${shown} ausschließen` }, 'ausschließen'))
           : null));
     }
     const context = () => {
@@ -256,9 +266,9 @@ export async function render(main, ctx) {
       h('div', { class: 'detail-actions' },
         ev.host ? h('button', { type: 'button', class: 'btn btn-small', onclick: context }, 'Umgebung anzeigen (±5 Min. auf diesem Host)') : null),
       dl,
-      h('h4', { text: 'Nachricht' }), codeBlock(ev.message || ''),
-      ev.data ? [h('h4', { text: 'Weitere Felder (data.…)' }), codeBlock(JSON.stringify(ev.data, null, 2))] : null,
-      ev.raw ? [h('h4', { text: 'Originalzeile' }), codeBlock(ev.raw)] : null);
+      h('h3', { text: 'Nachricht' }), codeBlock(ev.message || ''),
+      ev.data ? [h('h3', { text: 'Weitere Felder (durchsuchbar als data.<name>)' }), codeBlock(JSON.stringify(ev.data, null, 2))] : null,
+      ev.raw ? [h('h3', { text: 'Originalzeile' }), codeBlock(ev.raw)] : null);
   }
 
   live.addEventListener('change', () => {

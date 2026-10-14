@@ -18,46 +18,65 @@ export async function render(main, ctx) {
   return renderList(main, ctx);
 }
 
+function areaOf(name) {
+  const m = /^([^:]{2,24}):\s/.exec(name);
+  return m ? m[1] : 'Eigene Regeln';
+}
+
 async function renderList(main, ctx) {
   const editable = ctx.can('analyst');
   const listHost = h('div');
   main.append(
     h('div', { class: 'page-head' },
       h('h1', { text: 'Erkennungsregeln' }),
-      h('div', { class: 'spacer' }),
       editable ? h('a', { class: 'btn btn-primary', href: '#/rules/new' }, 'Neue Regel') : null),
-    h('p', { class: 'lead', text: 'Regeln durchsuchen alle eingehenden Events laufend und lösen Alarme aus. Sie verwenden dieselbe Abfragesprache wie die Suche.' }),
+    h('p', { class: 'lead', text: 'Regeln prüfen jedes eingehende Event und lösen Alarme aus. Sie verwenden dieselbe Abfragesprache wie die Suche.' }),
     listHost);
+
+  function row(r) {
+    const toggle = h('input', { type: 'checkbox', class: 'switch', checked: !!r.enabled, disabled: !editable,
+      'aria-label': `${r.name} aktiv` });
+    toggle.addEventListener('change', async () => {
+      try {
+        await api(`/api/rules/${r.id}`, { method: 'PUT', body: { ...r, enabled: toggle.checked } });
+        toast(toggle.checked ? `„${r.name}“ aktiviert` : `„${r.name}“ deaktiviert`);
+        load();
+      } catch (e) { toggle.checked = !toggle.checked; toast(e.message, 'error'); }
+    });
+    const shortName = r.name.replace(/^[^:]{2,24}:\s/, '');
+    return h('li', { class: ['rule', !r.enabled && 'rule-off'] },
+      h('div', { class: 'rule-toggle' }, toggle),
+      h('div', { class: 'rule-main' },
+        h('a', { href: `#/rules/${r.id}`, class: 'rule-name', text: shortName }),
+        r.description ? h('p', { class: 'rule-desc', text: r.description }) : null,
+        h('p', { class: 'rule-when', text: describe(r) })),
+      h('div', {}, sevBadge(r.severity)),
+      h('div', { class: 'rule-side' },
+        r.alerts_open
+          ? h('a', { href: `#/alerts?search=${encodeURIComponent(r.name)}`, text: `${r.alerts_open} offen` })
+          : h('span', { text: r.last_alert ? `zuletzt ${fmt.rel(r.last_alert)}` : 'noch nie ausgelöst' })));
+  }
 
   async function load() {
     const { rules } = await api('/api/rules');
     clear(listHost);
     if (!rules.length) {
-      listHost.appendChild(empty('Noch keine Regeln', 'Legen Sie eine Regel an oder speichern Sie eine Suche als Regel.'));
+      listHost.appendChild(empty('Noch keine Regeln', 'Legen Sie eine Regel an oder speichern Sie eine Suche als Regel.',
+        editable ? h('a', { class: 'btn btn-primary', href: '#/rules/new' }, 'Neue Regel') : null));
       return;
     }
-    listHost.appendChild(h('ul', { class: 'rule-list' }, rules.map((r) => {
-      const toggle = h('input', { type: 'checkbox', class: 'switch', checked: !!r.enabled, disabled: !editable,
-        'aria-label': `${r.name} ${r.enabled ? 'deaktivieren' : 'aktivieren'}` });
-      toggle.addEventListener('change', async () => {
-        try {
-          await api(`/api/rules/${r.id}`, { method: 'PUT', body: { ...r, enabled: toggle.checked } });
-          toast(toggle.checked ? `„${r.name}“ aktiviert` : `„${r.name}“ deaktiviert`);
-          load();
-        } catch (e) { toggle.checked = !toggle.checked; toast(e.message, 'error'); }
-      });
-      return h('li', { class: ['rule', !r.enabled && 'rule-off'] },
-        h('div', { class: 'rule-toggle' }, toggle),
-        h('div', { class: 'rule-main' },
-          h('a', { href: `#/rules/${r.id}`, class: 'rule-name', text: r.name }),
-          r.description ? h('p', { class: 'rule-desc', text: r.description }) : null,
-          h('p', { class: 'rule-logic', text: describe(r) }),
-          h('code', { class: 'rule-query', text: r.query })),
-        h('div', { class: 'rule-side' },
-          sevBadge(r.severity),
-          r.alerts_open ? h('a', { href: `#/alerts?status=active&search=${encodeURIComponent(r.name)}`, class: 'rule-open', text: `${r.alerts_open} offen` }) : null,
-          h('span', { class: 'muted small', text: r.last_alert ? `zuletzt ${fmt.rel(r.last_alert)}` : 'noch nie ausgelöst' })));
-    })));
+    const groups = new Map();
+    for (const r of rules) {
+      const a = areaOf(r.name);
+      if (!groups.has(a)) groups.set(a, []);
+      groups.get(a).push(r);
+    }
+    for (const [area, items] of [...groups].sort((x, y) => x[0].localeCompare(y[0], 'de'))) {
+      const active = items.filter((r) => r.enabled).length;
+      listHost.appendChild(h('section', { class: 'rule-group' },
+        h('h2', {}, h('span', { class: 'rule-area', text: area }), h('span', { text: `${active} von ${items.length} aktiv` })),
+        h('ul', { class: 'rule-list' }, items.map(row))));
+    }
   }
   await load();
 }
@@ -80,8 +99,8 @@ async function renderEditor(main, ctx, id) {
   const groupSel = select([['', 'nicht getrennt (alle zusammen)'], ...GROUP_FIELDS.map((f) => [f, FIELD_LABELS[f]])], rule.group_by || '');
   const distinctSel = select(GROUP_FIELDS.map((f) => [f, FIELD_LABELS[f]]), rule.distinct_field || 'dst_port');
   const enabled = h('input', { type: 'checkbox', checked: !!rule.enabled, id: 'rule-enabled' });
-  const sentence = h('p', { class: 'rule-logic big' });
-  const testHours = select([[1, 'letzte Stunde'], [24, 'letzte 24 Stunden'], [168, 'letzte 7 Tage'], [720, 'letzte 30 Tage']], 24);
+  const sentence = h('p', { class: 'rule-logic', 'aria-live': 'polite' });
+  const testHours = select([[1, 'Letzte Stunde'], [24, 'Letzte 24 Stunden'], [168, 'Letzte 7 Tage'], [720, 'Letzte 30 Tage']], 24, { 'aria-label': 'Zeitraum für den Test' });
   const testHost = h('div', { class: 'test-result' });
   const thresholdField = field('Anzahl', threshold);
   const distinctField = field('Verschiedene Werte von', distinctSel, 'z. B. Zielport für einen Portscan oder Benutzer für Password-Spraying.');
@@ -132,7 +151,7 @@ async function renderEditor(main, ctx, id) {
           h('tbody', {}, r.alerts.slice(0, 15).map((a) => h('tr', {},
             h('td', { class: 'mono', text: a.group_value || '–' }), h('td', { class: 'num', text: fmt.num(a.count) }),
             h('td', { text: fmt.time(a.first_seen) }), h('td', { text: fmt.time(a.last_seen) }))))) : null,
-        r.samples.length ? [h('h4', { text: 'Zuletzt passende Events' }),
+        r.samples.length ? [h('h3', { text: 'Zuletzt passende Events' }),
           h('ul', { class: 'samples' }, r.samples.map((s) => h('li', { class: 'mono' },
             h('span', { class: 'muted', text: `${fmt.time(s.ts)}  ${s.host || ''}  ` }), s.message)))] : null);
     } catch (e) {
@@ -179,14 +198,14 @@ async function renderEditor(main, ctx, id) {
     h('div', { class: 'page-head' }, h('h1', { text: id ? 'Regel bearbeiten' : 'Neue Regel' }),
       rule.builtin ? h('span', { class: 'tag', text: 'mitgeliefert' }) : null),
     h('div', { class: 'editor-layout' },
-      h('form', { class: 'panel', onsubmit: saveRule }, fs,
+      h('form', { onsubmit: saveRule }, fs,
         editable ? h('div', { class: 'form-actions' },
           h('button', { type: 'submit', class: 'btn btn-primary' }, id ? 'Regel speichern' : 'Regel anlegen'),
           h('a', { class: 'btn', href: '#/rules' }, 'Abbrechen'),
           h('div', { class: 'spacer' }),
           id ? h('button', { type: 'button', class: 'btn btn-danger', onclick: deleteRule }, 'Löschen') : null) : null),
-      h('section', { class: 'panel' },
-        h('div', { class: 'panel-head' }, h('h2', { text: 'Regel testen' })),
+      h('section', { class: 'test-panel', 'aria-labelledby': 'rule-test-h' },
+        h('h2', { id: 'rule-test-h', text: 'Regel testen' }),
         h('p', { class: 'muted', text: 'Spielt die Regel gegen bereits gespeicherte Events ab, ohne Alarme zu erzeugen.' }),
         h('div', { class: 'inline' }, testHours, h('button', { type: 'button', class: 'btn', onclick: runTest }, 'Test starten')),
         testHost)));

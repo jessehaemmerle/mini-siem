@@ -4,22 +4,22 @@ import { clear, field, fmt, h, toast } from '../ui.js';
 const AUDIT_LABELS = {
   login: 'Anmeldung', 'login.failed': 'Fehlgeschlagene Anmeldung', 'password.change': 'Passwort geändert',
   'user.create': 'Benutzer angelegt', 'user.update': 'Benutzer geändert', 'user.delete': 'Benutzer gelöscht',
-  'token.create': 'Token erstellt', 'token.delete': 'Token gesperrt', 'rule.create': 'Regel angelegt',
+  'token.create': 'Sende-Token erstellt', 'token.delete': 'Sende-Token gesperrt', 'rule.create': 'Regel angelegt',
   'rule.update': 'Regel geändert', 'rule.delete': 'Regel gelöscht', 'alert.update': 'Alarm bearbeitet',
   'alert.bulk': 'Alarme bearbeitet', 'password.reset': 'Passwort zurückgesetzt', 'settings.update': 'Einstellungen geändert', 'source.delete': 'Quelle entfernt',
 };
 
 function meter(used, total) {
   const pct = total ? Math.min(100, (used / total) * 100) : 0;
-  return h('div', { class: ['meter', pct > 90 && 'meter-crit', pct > 75 && pct <= 90 && 'meter-warn'], role: 'meter',
+  return h('div', { class: ['meter', pct > 90 && 'meter-crit', pct > 75 && pct <= 90 && 'meter-warn'], role: 'meter', 'aria-label': 'Belegter Speicherplatz',
     'aria-valuemin': 0, 'aria-valuemax': 100, 'aria-valuenow': Math.round(pct) },
   h('span', { style: { width: `${pct}%` } }));
 }
 
 export async function render(main, ctx) {
-  const statusHost = h('div', { class: 'grid-2' });
-  const settingsHost = h('section', { class: 'panel' });
-  const auditHost = h('section', { class: 'panel' });
+  const statusHost = h('div', { class: 'cols' });
+  const settingsHost = h('section', { class: 'section' });
+  const auditHost = h('section', { class: 'section' });
   main.append(h('div', { class: 'page-head' }, h('h1', { text: 'System' })), statusHost, settingsHost,
     ctx.can('admin') ? auditHost : null);
 
@@ -35,8 +35,8 @@ export async function render(main, ctx) {
     if (p.dropped_full) problems.push(`${fmt.num(p.dropped_full)} Events wurden seit dem Start verworfen, weil die Warteschlange voll war.`);
     if (disk && disk.free / disk.total < 0.1) problems.push('Auf dem Datenträger sind weniger als 10 % frei. Aufbewahrungsdauer verkürzen oder Speicher erweitern.');
     clear(statusHost).append(
-      h('section', { class: 'panel' },
-        h('div', { class: 'panel-head' }, h('h2', { text: 'Verarbeitung' })),
+      h('section', { class: 'section' },
+        h('div', { class: 'section-head' }, h('h2', { text: 'Verarbeitung' })),
         problems.length ? h('div', { class: 'notice notice-error' }, problems.map((x) => h('p', { text: x }))) : h('p', { class: 'ok-line', text: 'Alles in Ordnung.' }),
         h('dl', { class: 'facts' },
           h('dt', { text: 'Version' }), h('dd', { text: s.version }),
@@ -48,8 +48,8 @@ export async function render(main, ctx) {
           p.dropped_old ? [h('dt', { text: 'Zu alt verworfen' }), h('dd', { text: fmt.num(p.dropped_old) })] : null,
           h('dt', { text: 'Empfang' }), h('dd', { text: `Web ${s.listeners.http_port}, Syslog UDP ${s.listeners.syslog_udp || 'aus'}, TCP ${s.listeners.syslog_tcp || 'aus'}${s.listeners.syslog_tls ? `, TLS ${s.listeners.syslog_tls}` : ''} (im Container)` }),
           s.listeners.syslog_allow.length ? [h('dt', { text: 'Syslog erlaubt von' }), h('dd', { class: 'mono', text: s.listeners.syslog_allow.join(', ') })] : null)),
-      h('section', { class: 'panel' },
-        h('div', { class: 'panel-head' }, h('h2', { text: 'Speicher' })),
+      h('section', { class: 'section' },
+        h('div', { class: 'section-head' }, h('h2', { text: 'Speicher' })),
         disk ? [meter(disk.used, disk.total), h('p', { class: 'muted', text: `${fmt.bytes(disk.free)} frei von ${fmt.bytes(disk.total)}` })] : null,
         h('dl', { class: 'facts' },
           h('dt', { text: 'Events gesamt' }), h('dd', { text: fmt.bytes(st.events_bytes) }),
@@ -70,7 +70,7 @@ export async function render(main, ctx) {
       session_hours: h('input', { type: 'number', min: 1, max: 720, value: s.session_hours, class: 'input-short' }),
     };
     clear(settingsHost).append(
-      h('div', { class: 'panel-head' }, h('h2', { text: 'Einstellungen' })),
+      h('div', { class: 'section-head' }, h('h2', { text: 'Einstellungen' })),
       h('form', {
         class: 'form',
         onsubmit: async (e) => {
@@ -95,7 +95,7 @@ export async function render(main, ctx) {
   async function loadAudit() {
     const { entries } = await api('/api/audit', { params: { limit: 200 } });
     clear(auditHost).append(
-      h('div', { class: 'panel-head' }, h('h2', { text: 'Protokoll der Änderungen' }), h('span', { class: 'muted', text: 'letzte 200 Einträge' })),
+      h('div', { class: 'section-head' }, h('h2', { text: 'Protokoll der Änderungen' }), h('span', { class: 'muted', text: 'letzte 200 Einträge' })),
       h('div', { class: 'table-scroll' }, h('table', { class: 'table compact' },
         h('thead', {}, h('tr', {}, h('th', { text: 'Zeit' }), h('th', { text: 'Person' }), h('th', { text: 'Aktion' }), h('th', { text: 'Details' }), h('th', { text: 'IP' }))),
         h('tbody', {}, entries.map((e) => h('tr', { class: e.action === 'login.failed' ? 'row-warn' : null },

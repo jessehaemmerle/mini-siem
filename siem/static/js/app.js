@@ -17,11 +17,11 @@ const PAGES = [
   { path: 'alerts', label: 'Alarme', icon: 'alerts', mod: alerts },
   { path: 'rules', label: 'Regeln', icon: 'rules', mod: rules },
   { path: 'sources', label: 'Quellen', icon: 'sources', mod: sources },
-  { path: 'users', label: 'Benutzer', icon: 'users', mod: users, role: 'admin' },
-  { path: 'system', label: 'System', icon: 'system', mod: system },
+  { path: 'users', label: 'Benutzer', icon: 'users', mod: users, role: 'admin', secondary: true },
+  { path: 'system', label: 'System', icon: 'system', mod: system, secondary: true },
 ];
 
-const state = { user: null, cleanup: null, badgeTimer: null };
+const state = { user: null, cleanup: null, badgeTimer: null, routed: false };
 const root = document.getElementById('app');
 
 // ------------------------------------------------------------------ Design hell/dunkel
@@ -75,11 +75,12 @@ async function route() {
     history.replaceState(null, '', `#/${page.path}`);
   }
   document.querySelectorAll('.nav a').forEach((a) => {
-    a.classList.toggle('active', a.dataset.page === page.path);
     if (a.dataset.page === page.path) a.setAttribute('aria-current', 'page');
     else a.removeAttribute('aria-current');
   });
   document.body.classList.remove('nav-open');
+  document.querySelector('.nav-toggle')?.setAttribute('aria-expanded', 'false');
+  document.querySelector('.usermenu')?.removeAttribute('open');
   if (state.cleanup) { try { state.cleanup(); } catch { /* egal */ } }
   state.cleanup = null;
   const main = clear(document.getElementById('main'));
@@ -96,7 +97,10 @@ async function route() {
       main.appendChild(h('div', { class: 'notice notice-error' }, e.message || String(e)));
     }
   }
-  main.focus({ preventScroll: true });
+  // Nach einem Seitenwechsel den Fokus auf den Inhalt setzen (nicht beim ersten Laden,
+  // damit Tab zuerst "Zum Inhalt springen" und die Navigation erreicht)
+  if (state.routed) main.focus({ preventScroll: true });
+  state.routed = true;
 }
 
 // ------------------------------------------------------------------ Layout
@@ -106,7 +110,11 @@ async function refreshBadge() {
     const d = await api('/api/alerts', { params: { status: 'open', limit: 1 } });
     const n = d.counts.open || 0;
     const b = document.getElementById('badge-alerts');
-    if (b) { b.textContent = n > 99 ? '99+' : String(n); b.hidden = n === 0; }
+    if (b) {
+      b.textContent = n > 99 ? '99+' : String(n);
+      b.hidden = n === 0;
+      b.setAttribute('aria-label', `${n} offen`);
+    }
   } catch { /* still */ }
 }
 
@@ -138,24 +146,37 @@ function changePasswordDialog() {
 }
 
 function shell() {
-  const nav = h('nav', { class: 'nav', 'aria-label': 'Hauptnavigation' },
-    PAGES.filter((p) => !p.role || can(p.role)).map((p) =>
-      h('a', { href: `#/${p.path}`, dataset: { page: p.path } },
-        icon(p.icon), h('span', { text: p.label }),
-        p.path === 'alerts' ? h('span', { class: 'badge', id: 'badge-alerts', hidden: true }) : null)));
-  const userBox = h('div', { class: 'userbox' },
-    h('button', { type: 'button', class: 'userbox-name', title: 'Passwort ändern', onclick: changePasswordDialog },
-      h('span', { class: 'userbox-user', text: state.user.display_name }),
-      h('span', { class: 'userbox-role', text: state.user.role_label })),
-    h('div', { class: 'userbox-actions' },
-      h('button', { type: 'button', class: 'btn-icon', title: 'Hell/Dunkel umschalten', 'aria-label': 'Hell/Dunkel umschalten', onclick: toggleTheme }, icon('moon')),
-      h('button', { type: 'button', class: 'btn-icon', title: 'Abmelden', 'aria-label': 'Abmelden', onclick: logout }, icon('logout'))));
+  const visible = PAGES.filter((p) => !p.role || can(p.role));
+  const link = (p) => h('a', { href: `#/${p.path}`, dataset: { page: p.path }, class: p.secondary ? 'nav-secondary' : null },
+    h('span', { text: p.label }),
+    p.path === 'alerts' ? h('span', { class: 'count', id: 'badge-alerts', hidden: true }) : null);
+  const toggle = h('button', {
+    type: 'button', class: 'btn-icon nav-toggle', 'aria-label': 'Menü', 'aria-expanded': 'false', 'aria-controls': 'mainnav',
+    onclick: () => {
+      const open = document.body.classList.toggle('nav-open');
+      toggle.setAttribute('aria-expanded', String(open));
+    },
+  }, icon('menu'));
+  const initials = (state.user.display_name || state.user.username).split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase();
+  const menu = h('details', { class: 'usermenu' },
+    h('summary', { 'aria-label': `Benutzermenü ${state.user.display_name}` },
+      h('span', { class: 'avatar', 'aria-hidden': 'true', text: initials }),
+      h('span', { class: 'usermenu-name', text: state.user.display_name })),
+    h('div', { class: 'usermenu-panel' },
+      h('div', { class: 'usermenu-who' }, h('strong', { text: state.user.display_name }),
+        h('span', { class: 'small muted', text: `${state.user.username}, ${state.user.role_label}` })),
+      h('button', { type: 'button', onclick: () => { menu.removeAttribute('open'); changePasswordDialog(); } }, 'Passwort ändern'),
+      h('button', { type: 'button', onclick: () => { menu.removeAttribute('open'); toggleTheme(); } }, 'Hell/Dunkel umschalten'),
+      h('button', { type: 'button', onclick: logout }, 'Abmelden')));
   clear(root).append(
-    h('aside', { class: 'sidebar' },
-      h('div', { class: 'brand' },
-        h('a', { href: '#/overview', class: 'brand-name' }, h('span', { class: 'brand-mark', 'aria-hidden': 'true' }), 'Mini-SIEM'),
-        h('button', { type: 'button', class: 'btn-icon nav-toggle', 'aria-label': 'Menü', onclick: () => document.body.classList.toggle('nav-open') }, icon('menu'))),
-      nav, userBox),
+    h('header', { class: 'topbar' },
+      h('div', { class: 'topbar-inner' },
+        h('a', { href: '#/overview', class: 'brand' }, h('span', { class: 'brand-mark', 'aria-hidden': 'true' }), 'Mini-SIEM'),
+        h('nav', { class: 'nav', id: 'mainnav', 'aria-label': 'Hauptnavigation' },
+          visible.filter((p) => !p.secondary).map(link),
+          h('span', { class: 'nav-gap', 'aria-hidden': 'true' }),
+          visible.filter((p) => p.secondary).map(link)),
+        h('div', { class: 'topbar-tools' }, menu, toggle))),
     h('main', { id: 'main', tabindex: '-1' }));
   refreshBadge();
   clearInterval(state.badgeTimer);
@@ -163,6 +184,15 @@ function shell() {
 }
 
 // ------------------------------------------------------------------ Anmeldung
+
+const LOGIN_LINES = [
+  'sshd: Failed password for invalid user admin from 203.0.113.66',
+  'kernel: [UFW BLOCK] SRC=198.51.100.23 DST=10.0.0.1 DPT=3389',
+  'Security 4625: Anmeldung fehlgeschlagen (j.mueller)',
+  'sudo: anna : COMMAND=/usr/bin/systemctl restart nginx',
+  'nginx: GET /shop?id=1 UNION SELECT password FROM users 403',
+  'Security 4732: Mitglied zu Administratoren hinzugefügt',
+];
 
 function loginView(message) {
   clearInterval(state.badgeTimer);
@@ -186,10 +216,15 @@ function loginView(message) {
       }
     },
   },
-  h('h1', { class: 'login-title' }, h('span', { class: 'brand-mark', 'aria-hidden': 'true' }), 'Mini-SIEM'),
-  h('p', { class: 'muted', text: 'Bitte melden Sie sich an.' }),
-  field('Benutzername', user), field('Passwort', pass), err, btn);
-  clear(root).append(h('div', { class: 'login' }, form));
+  h('h1', { text: 'Anmelden' }),
+  field('Benutzername', user), field('Passwort', pass), err, btn,
+  h('p', { class: 'hint', text: 'Passwort vergessen? Ein Administrator kann es zurücksetzen.' }));
+  clear(root).append(h('main', { class: 'login', id: 'main' },
+    h('section', { class: 'login-side', 'aria-hidden': 'true' },
+      h('span', { class: 'brand' }, h('span', { class: 'brand-mark' }), 'Mini-SIEM'),
+      h('p', { class: 'login-claim', text: 'Alle Logs an einem Ort. Auffälliges zuerst.' }),
+      h('div', { class: 'login-lines' }, LOGIN_LINES.map((l) => h('span', { text: l })))),
+    h('div', { class: 'login-main' }, form)));
   document.title = 'Anmelden – Mini-SIEM';
   user.focus();
 }
@@ -215,6 +250,25 @@ setUnauthorizedHandler(() => {
 });
 
 window.addEventListener('hashchange', route);
+
+// Benutzermenü schließen bei Klick daneben oder Escape
+document.addEventListener('click', (e) => {
+  const menu = document.querySelector('.usermenu[open]');
+  if (menu && !menu.contains(e.target)) menu.removeAttribute('open');
+});
+document.addEventListener('keydown', (e) => {
+  const menu = document.querySelector('.usermenu[open]');
+  if (e.key === 'Escape' && menu) {
+    menu.removeAttribute('open');
+    menu.querySelector('summary').focus();
+  }
+});
+
+// "Zum Inhalt springen" darf das Hash-Routing nicht auslösen
+document.querySelector('.skip')?.addEventListener('click', (e) => {
+  e.preventDefault();
+  document.getElementById('main')?.focus();
+});
 applyTheme();
 
 (async () => {

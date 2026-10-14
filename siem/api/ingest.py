@@ -5,7 +5,7 @@
 * ``POST /services/collector/event`` – Splunk-HEC-kompatibel, u. a. für den
   Docker-Logging-Treiber ``splunk`` (ganz ohne zusätzlichen Agenten)
 
-Authentifizierung mit einem Ingest-Token aus der Oberfläche (Quellen → Tokens):
+Authentifizierung mit einem Sende-Token aus der Oberfläche (Quellen → Sende-Tokens):
 ``Authorization: Bearer <token>``, ``Authorization: Splunk <token>``,
 ``X-API-Key: <token>``, HTTP-Basic (Passwort = Token) oder ``?token=<token>``.
 """
@@ -128,7 +128,7 @@ def _items_raw(data: bytes) -> list[tuple[str, object]]:
 async def _ingest(request: Request, core, parser) -> int:
     token_id = core.tokens.lookup(_token_from(request))
     if token_id is None:
-        raise IngestError(401, "Ungültiges oder fehlendes Ingest-Token", 4)
+        raise IngestError(401, "Ungültiges oder fehlendes Sende-Token", 4)
     data = await _read_body(request)
     if not data.strip():
         raise IngestError(400, "Keine Daten", 5)

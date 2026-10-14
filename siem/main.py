@@ -47,7 +47,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         title="Mini-SIEM",
         version=__version__,
         description="REST-API des Mini-SIEM. Anmeldung über die Weboberfläche (Cookie) "
-                    "bzw. Ingest-Token für die Log-Annahme.",
+                    "bzw. Sende-Token für die Log-Annahme.",
         lifespan=lifespan,
         docs_url="/api/docs",
         redoc_url=None,

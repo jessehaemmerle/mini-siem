@@ -64,7 +64,7 @@ python3 scripts/demo_logs.py --host <server>
 | **Suche** | Events durchsuchen; Klick auf eine Zeile zeigt alle Felder, Klick auf Werte filtert |
 | **Alarme** | Alarme übernehmen, kommentieren, schließen (mit Ergebnis), Sammelaktionen |
 | **Regeln** | Erkennungsregeln an-/abschalten, bearbeiten, gegen vorhandene Daten testen |
-| **Quellen** | Welche Geräte senden? Wer ist still geworden? Anleitungen und Ingest-Tokens |
+| **Quellen** | Welche Geräte senden? Wer ist still geworden? Anleitungen und Sende-Tokens |
 | **Benutzer** | Konten und Rollen (nur Administratoren) |
 | **System** | Zustand, Speicherplatz, Aufbewahrung, Protokoll aller Änderungen |
 
@@ -107,7 +107,7 @@ fließen in den offenen Alarm ein, statt eine Alarmflut zu erzeugen. Jede Suche 
 |-------|------|
 | Nur lesen | alles ansehen |
 | Analyst | zusätzlich Alarme bearbeiten, Regeln und Quellen pflegen |
-| Administrator | zusätzlich Benutzer, Ingest-Tokens und Einstellungen verwalten |
+| Administrator | zusätzlich Benutzer, Sende-Tokens und Einstellungen verwalten |
 
 ---
 

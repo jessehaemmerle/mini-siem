@@ -59,7 +59,7 @@ ALIASES: dict[str, list[str]] = {
 
 SEVERITY_NAMES: dict[str, int] = {
     "emerg": 0, "emergency": 0, "notfall": 0,
-    "alert": 1, "alarm": 1,
+    "alert": 1, "alarm": 1, "dringend": 1,
     "crit": 2, "critical": 2, "kritisch": 2, "fatal": 2,
     "err": 3, "error": 3, "fehler": 3,
     "warn": 4, "warning": 4, "warnung": 4,

@@ -98,7 +98,7 @@ export const fmt = {
   },
 };
 
-export const SYSLOG_SEV = ['Notfall', 'Alarm', 'Kritisch', 'Fehler', 'Warnung', 'Hinweis', 'Info', 'Debug'];
+export const SYSLOG_SEV = ['Notfall', 'Dringend', 'Kritisch', 'Fehler', 'Warnung', 'Hinweis', 'Info', 'Debug'];
 export const ALERT_SEV = { critical: 'Kritisch', high: 'Hoch', medium: 'Mittel', low: 'Niedrig' };
 export const ALERT_SEV_ORDER = ['critical', 'high', 'medium', 'low'];
 export const STATUS = { open: 'Offen', ack: 'In Bearbeitung', closed: 'Geschlossen' };
@@ -110,13 +110,21 @@ export const FIELD_LABELS = {
   received: 'Empfangen',
 };
 
+// Pegel-Symbol: 1–4 Balken, damit Schweregrade auch ohne Farbsehen unterscheidbar sind
+export function pegel(level) {
+  return h('span', { class: `pegel pegel-${level}`, 'aria-hidden': 'true' }, h('i'), h('i'), h('i'), h('i'));
+}
+
 export function sevBadge(sev) {
-  return h('span', { class: `sev sev-${sev}` }, ALERT_SEV[sev] || sev);
+  return h('span', { class: `sev sev-${sev}` }, pegel(sev), ALERT_SEV[sev] || sev);
+}
+
+export function syslogLevel(n) {
+  return n <= 2 ? 'critical' : n === 3 ? 'high' : n === 4 ? 'medium' : 'info';
 }
 
 export function syslogSev(n) {
-  const cls = n <= 2 ? 'critical' : n === 3 ? 'high' : n === 4 ? 'medium' : 'info';
-  return h('span', { class: `lvl lvl-${cls}`, title: `Syslog-Schweregrad ${n}` }, SYSLOG_SEV[n] ?? n);
+  return h('span', { class: `lvl lvl-${syslogLevel(n)}`, title: `Syslog-Schweregrad ${n}` }, SYSLOG_SEV[n] ?? n);
 }
 
 export function statusBadge(status) {
@@ -214,57 +222,166 @@ export function select(options, value, props = {}) {
 
 // ------------------------------------------------------------------ Diagramme
 
-// Säulendiagramm über die Zeit. series: [{values, cls}] (gestapelt, unten zuerst)
-export function timeChart({ start, bucket, series, height = 160, onSelect }) {
-  const n = series[0].values.length;
-  const totals = Array.from({ length: n }, (_, i) => series.reduce((s, x) => s + (x.values[i] || 0), 0));
-  const max = Math.max(1, ...totals);
-  const W = 1000;
-  const H = height;
-  const bw = W / n;
-  const root = svg('svg', { viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: 'none', class: 'chart', role: 'img',
-    'aria-label': `Verlauf, maximal ${fmt.num(max)} pro Intervall`, style: { height: `${H}px` } });
-  for (const f of [0.5, 1]) {
-    const y = H * (1 - f) + 0.5;
-    root.appendChild(svg('line', { x1: 0, x2: W, y1: y, y2: y, class: 'chart-grid' }));
-  }
-  root.appendChild(svg('line', { x1: 0, x2: W, y1: H - 0.5, y2: H - 0.5, class: 'chart-base' }));
-  for (let i = 0; i < n; i++) {
-    let y = H;
-    const g = svg('g', { class: onSelect ? 'chart-col clickable' : 'chart-col' });
-    const t0 = start + i * bucket;
-    g.appendChild(svg('title', {}, `${fmt.time(t0)}: ${fmt.num(totals[i])}`));
-    g.appendChild(svg('rect', { x: i * bw, y: 0, width: bw, height: H, class: 'chart-hit' }));
-    for (const s of series) {
-      const v = s.values[i] || 0;
-      if (!v) continue;
-      const bh = Math.max(2, (v / max) * (H - 6));
-      y -= bh;
-      g.appendChild(svg('rect', { x: i * bw + bw * 0.14, y, width: Math.max(1, bw * 0.72), height: bh, class: s.cls }));
-    }
-    if (onSelect) g.addEventListener('click', () => onSelect(t0, t0 + bucket));
-    root.appendChild(g);
-  }
-  const axis = h('div', { class: 'chart-axis' });
-  const step = Math.max(1, Math.round(n / 6));
-  const multiDay = n * bucket > 86400 * 1.5;
-  for (let i = 0; i < n; i += step) {
-    if (i / n > 0.9) break; // letzte Beschriftung würde abgeschnitten
-    const t = start + i * bucket;
-    axis.appendChild(h('span', { style: { left: `${(i / n) * 100}%` } }, multiDay ? fmt.day(t) : fmt.clock(t)));
-  }
-  return h('div', { class: 'chart-wrap' }, h('span', { class: 'chart-max', text: fmt.num(max) }), root, axis);
+function niceMax(v) {
+  if (v <= 4) return Math.max(1, Math.ceil(v));
+  const p = 10 ** Math.floor(Math.log10(v));
+  for (const m of [1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10]) if (m * p >= v) return m * p;
+  return 10 * p;
 }
 
-// Horizontale Balkenliste
-export function barList(items, { onClick, label = (v) => v } = {}) {
+function compact(v) {
+  if (v >= 1e6) return `${(v / 1e6).toLocaleString('de-DE', { maximumFractionDigits: 1 })} Mio.`;
+  if (v >= 1e4) return `${(v / 1e3).toLocaleString('de-DE', { maximumFractionDigits: 0 })} Tsd.`;
+  return fmt.num(v);
+}
+
+function spanLabel(t0, bucket) {
+  const t1 = t0 + bucket;
+  if (bucket >= 86400) return fmt.day(t0);
+  const sameDay = new Date(t0 * 1000).toDateString() === new Date(Date.now()).toDateString();
+  return `${sameDay ? '' : `${fmt.day(t0)} `}${fmt.clock(t0)}–${fmt.clock(t1)}`;
+}
+
+// Säulendiagramm über die Zeit, gestapelt. series: [{values, cls, label}] – unten zuerst.
+// Hover und Tastatur (Pfeiltasten) zeigen dieselben Werte; darunter eine Tabellenansicht.
+export function timeChart({ start, bucket, series, height = 180, onSelect, label = 'Verlauf' }) {
+  const n = series[0].values.length;
+  const totals = Array.from({ length: n }, (_, i) => series.reduce((s, x) => s + (x.values[i] || 0), 0));
+  const top = niceMax(Math.max(1, ...totals));
+  const wrap = h('div', { class: ['chart', onSelect && 'clickable'] });
+  const tip = h('div', { class: 'chart-tip hidden' });
+  const root = svg('svg', {
+    role: 'img', tabindex: 0, height,
+    'aria-label': `${label}: insgesamt ${fmt.num(totals.reduce((a, b) => a + b, 0))}, höchster Wert ${fmt.num(Math.max(...totals))}. Mit den Pfeiltasten durch die Zeitabschnitte gehen.`,
+  });
+  wrap.append(root, tip);
+  let active = -1;
+  let geo = null;
+
+  function render() {
+    const W = Math.max(280, wrap.clientWidth || 800);
+    const axisL = 52;
+    const axisB = 24;
+    const plotH = height - axisB;
+    const slot = (W - axisL) / n;
+    const bw = Math.max(1, Math.min(24, slot - 2));
+    geo = { W, axisL, slot };
+    while (root.firstChild) root.removeChild(root.firstChild);
+    root.setAttribute('viewBox', `0 0 ${W} ${height}`);
+    root.setAttribute('width', W);
+    const y = (v) => plotH - (v / top) * (plotH - 6);
+    for (const f of [0, 0.5, 1]) {
+      const yy = Math.round(y(top * f)) + 0.5;
+      root.appendChild(svg('line', { x1: axisL, x2: W, y1: yy, y2: yy, class: f === 0 ? 'c-base' : 'c-grid' }));
+      root.appendChild(svg('text', { x: axisL - 8, y: yy + 4, 'text-anchor': 'end', class: 'c-tick' }, compact(top * f)));
+    }
+    for (let i = 0; i < n; i++) {
+      const x0 = axisL + i * slot;
+      const g = svg('g', { class: ['c-col', i === active && 'active'].filter(Boolean).join(' '), 'data-i': i });
+      g.appendChild(svg('rect', { x: x0, y: 0, width: slot, height: plotH, class: 'c-hit' }));
+      let base = plotH;
+      const segs = series.map((s) => ({ v: s.values[i] || 0, cls: s.cls })).filter((s) => s.v > 0);
+      segs.forEach((s, k) => {
+        const hh = Math.max(2, plotH - y(s.v) - (k > 0 ? 2 : 0));
+        const yTop = base - hh;
+        const x = x0 + (slot - bw) / 2;
+        const r = k === segs.length - 1 ? Math.min(4, bw / 2, hh) : 0;
+        const d = `M${x},${base} V${yTop + r} Q${x},${yTop} ${x + r},${yTop} H${x + bw - r} Q${x + bw},${yTop} ${x + bw},${yTop + r} V${base} Z`;
+        g.appendChild(svg('path', { d, class: s.cls }));
+        base = yTop - 2;
+      });
+      root.appendChild(g);
+    }
+    const multiDay = n * bucket > 86400 * 1.5;
+    const every = Math.max(1, Math.ceil(n / Math.max(2, Math.floor((W - axisL) / 90))));
+    for (let i = 0; i < n; i += every) {
+      if (i / n > 0.92) break;
+      const t = start + i * bucket;
+      root.appendChild(svg('text', { x: axisL + i * slot + 2, y: height - 6, class: 'c-tick' }, multiDay ? fmt.day(t) : fmt.clock(t)));
+    }
+  }
+
+  function showTip(i) {
+    active = i;
+    root.querySelectorAll('.c-col').forEach((g) => g.classList.toggle('active', Number(g.dataset.i) === i));
+    clear(tip).append(
+      h('div', { class: 'tip-when', text: spanLabel(start + i * bucket, bucket) }),
+      ...series.slice().reverse().map((s) => h('div', { class: 'tip-row' },
+        h('span', { class: `tip-key ${s.keyCls || ''}`, style: { background: `var(${s.color})` } }),
+        h('strong', { text: fmt.num(s.values[i] || 0) }), h('span', { class: 'muted', text: s.label }))));
+    tip.classList.remove('hidden');
+    // neben die Säule setzen, damit sie sichtbar bleibt
+    const rect = root.getBoundingClientRect();
+    const scale = rect.width / geo.W || 1;
+    const cx = (geo.axisL + (i + 0.5) * geo.slot) * scale;
+    const tw = tip.offsetWidth || 160;
+    const gap = (geo.slot * scale) / 2 + 8;
+    tip.style.left = `${cx + gap + tw <= rect.width ? cx + gap : Math.max(0, cx - gap - tw)}px`;
+    tip.style.top = '0px';
+  }
+  function hideTip() {
+    active = -1;
+    tip.classList.add('hidden');
+    root.querySelectorAll('.c-col.active').forEach((g) => g.classList.remove('active'));
+  }
+  const indexAt = (ev) => {
+    const rect = root.getBoundingClientRect();
+    const x = (ev.clientX - rect.left) * (geo.W / rect.width);
+    return Math.max(0, Math.min(n - 1, Math.floor((x - geo.axisL) / geo.slot)));
+  };
+  root.addEventListener('pointermove', (ev) => { if (geo) showTip(indexAt(ev)); });
+  root.addEventListener('pointerleave', hideTip);
+  root.addEventListener('blur', hideTip);
+  root.addEventListener('focus', () => {
+    let last = n - 1;
+    while (last > 0 && !totals[last]) last--;
+    showTip(last);
+  });
+  root.addEventListener('keydown', (ev) => {
+    const keys = { ArrowLeft: -1, ArrowRight: 1, Home: -Infinity, End: Infinity };
+    if (ev.key in keys) {
+      ev.preventDefault();
+      showTip(Math.max(0, Math.min(n - 1, (active < 0 ? n - 1 : active) + keys[ev.key])));
+    } else if (ev.key === 'Escape') hideTip();
+    else if ((ev.key === 'Enter' || ev.key === ' ') && onSelect && active >= 0) {
+      ev.preventDefault();
+      onSelect(start + active * bucket, start + (active + 1) * bucket);
+    }
+  });
+  if (onSelect) {
+    root.addEventListener('click', (ev) => {
+      const i = indexAt(ev);
+      onSelect(start + i * bucket, start + (i + 1) * bucket);
+    });
+  }
+  const ro = new ResizeObserver(() => { if (wrap.isConnected) render(); });
+  ro.observe(wrap);
+  requestAnimationFrame(render);
+
+  // Tabellenansicht (nur Zeitabschnitte mit Werten)
+  const rows = [];
+  for (let i = 0; i < n; i++) if (totals[i]) rows.push(i);
+  const table = h('details', { class: 'chart-data' },
+    h('summary', { class: 'small muted', text: 'Werte als Tabelle' }),
+    h('table', { class: 'table compact chart-table' },
+      h('thead', {}, h('tr', {}, h('th', { text: 'Zeitraum' }), series.slice().reverse().map((s) => h('th', { class: 'num', text: s.label })))),
+      h('tbody', {}, rows.length ? rows.map((i) => h('tr', {},
+        h('td', { text: spanLabel(start + i * bucket, bucket) }),
+        series.slice().reverse().map((s) => h('td', { class: 'num', text: fmt.num(s.values[i] || 0) }))))
+        : h('tr', {}, h('td', { colspan: series.length + 1, class: 'muted', text: 'Keine Werte im Zeitraum.' })))));
+  return h('div', { class: 'chart-block' }, wrap, table);
+}
+
+// Horizontale Balkenliste – eine Serie, eine Farbe
+export function barList(items, { onClick, label = (v) => v, marker } = {}) {
   if (!items.length) return h('p', { class: 'muted', text: 'Keine Daten im gewählten Zeitraum.' });
   const max = Math.max(...items.map((i) => i.count));
   return h('ul', { class: 'barlist' }, items.map((it) => {
     const content = [
-      h('span', { class: 'barlist-fill', style: { width: `${(it.count / max) * 100}%` } }),
-      h('span', { class: 'barlist-label', text: label(it.value) }),
+      h('span', { class: 'barlist-label' }, marker ? marker(it.value) : null, h('span', { text: label(it.value) })),
       h('span', { class: 'barlist-count', text: fmt.num(it.count) }),
+      h('span', { class: 'barlist-track', 'aria-hidden': 'true' },
+        h('span', { class: 'barlist-fill', style: { width: `${Math.max(1, (it.count / max) * 100)}%` } })),
     ];
     return h('li', {}, onClick
       ? h('button', { type: 'button', class: 'barlist-row', onclick: () => onClick(it.value) }, content)

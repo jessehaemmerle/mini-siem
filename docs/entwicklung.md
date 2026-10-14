@@ -57,6 +57,21 @@ Regeln kommen nicht zurück.
 niemals bestehende Einträge ändern. Für die Tagesdateien gilt: Spalten nur mit
 `ALTER TABLE … ADD COLUMN` ergänzen, weil alte Dateien bis zum Ablauf der Aufbewahrung bestehen bleiben.
 
+## Gestaltung der Oberfläche
+
+- **Tokens** stehen am Anfang von `siem/static/app.css`: Farben (hell und dunkel), Schriftgrößen,
+  4-px-Abstandsraster, Radien. Neue Komponenten verwenden nur diese Tokens, keine festen Werte.
+- **Farbe ist knapp:** Petrol (`--accent`) für Bedienung, die vier `--sev-*`-Farben ausschließlich
+  für Schweregrade – immer zusammen mit Text und dem Pegel-Symbol (1–4 Balken, `pegel()` in `ui.js`),
+  damit Schweregrade auch ohne Farbsehen unterscheidbar sind.
+- **Kontraste** sind auf WCAG 2.1 AA geprüft (Text ≥ 4,5:1, Bedienelemente und Grafik ≥ 3:1),
+  die Diagrammfarben zusätzlich auf Unterscheidbarkeit bei Farbsehschwächen. Wer Farben ändert,
+  sollte beides erneut prüfen.
+- **Diagramme** (`timeChart`, `barList` in `ui.js`): schmale Säulen mit 2 px Abstand, durchgezogene
+  Hilfslinien, Tooltip per Maus und Tastatur (Pfeiltasten), darunter immer eine Tabellenansicht.
+- **Texte:** Begriffe einheitlich verwenden – Event, Alarm, Regel, Quelle, Sende-Token;
+  Buttons nennen die Aktion („Alarm schließen“, nicht „OK“).
+
 ## Sicherheitsgrundsätze
 
 - Logdaten stammen potenziell von Angreifern: Die Oberfläche setzt sie ausschließlich als Text ein
@@ -64,5 +79,5 @@ niemals bestehende Einträge ändern. Für die Tagesdateien gilt: Spalten nur mi
 - In SQL werden nur feste Spaltennamen eingesetzt; alle Werte sind gebundene Parameter.
 - Schreibende API-Aufrufe brauchen den Header `X-SIEM: 1` (Schutz vor CSRF) und ein
   `SameSite=Strict`-Cookie.
-- Passwörter mit scrypt, Sitzungs- und Ingest-Tokens werden nur als SHA-256-Hash gespeichert.
+- Passwörter mit scrypt, Sitzungs- und Sende-Tokens werden nur als SHA-256-Hash gespeichert.
 - Der Container läuft als unprivilegierter Benutzer (UID 1000).

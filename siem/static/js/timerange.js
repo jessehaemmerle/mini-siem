@@ -35,7 +35,7 @@ export function picker(current, onChange) {
   const toIn = h('input', { type: 'datetime-local', value: toLocalInput(Math.min(current.to, Date.now() / 1000)), 'aria-label': 'Bis' });
   const custom = h('span', { class: ['range-custom', current.key !== 'custom' && 'hidden'] },
     fromIn, h('span', { class: 'muted', text: 'bis' }), toIn,
-    h('button', { type: 'button', class: 'btn btn-small', onclick: apply }, 'Übernehmen'));
+    h('button', { type: 'button', class: 'btn', onclick: apply }, 'Anwenden'));
   function apply() {
     const f = new Date(fromIn.value).getTime() / 1000;
     const t = new Date(toIn.value).getTime() / 1000;

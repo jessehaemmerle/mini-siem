@@ -108,7 +108,7 @@ def create_api_token(db, name: str, created_by: str) -> tuple[int, str]:
 
 
 class TokenCache:
-    """Hält gültige Ingest-Tokens im Speicher (keine DB-Abfrage pro Request)."""
+    """Hält gültige Sende-Tokens im Speicher (keine DB-Abfrage pro Request)."""
 
     def __init__(self, db):
         self.db = db

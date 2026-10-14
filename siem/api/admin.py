@@ -1,4 +1,4 @@
-"""Verwaltung: Benutzer, Ingest-Tokens, Einstellungen, Audit-Log, Systemstatus."""
+"""Verwaltung: Benutzer, Sende-Tokens, Einstellungen, Audit-Log, Systemstatus."""
 
 from __future__ import annotations
 
