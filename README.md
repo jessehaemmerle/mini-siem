@@ -1,173 +1,176 @@
-# Mini SIEM
+# Mini-SIEM
 
-Mini SIEM ist eine self-hosted SIEM-Plattform fuer kleine Teams, Labore und produktionsnahe Demos. Die Plattform sammelt Logs per REST, Fluent-Bit-kompatiblem HTTP und Syslog-Demo-Receiver, normalisiert Events, speichert sie in OpenSearch, verwaltet Metadaten in PostgreSQL, erzeugt Alerts ueber Detection Rules und stellt Dashboards, Reports, Audit Trail, Mandanten und Rollen bereit.
+Ein schlankes SIEM für kleine und mittlere Unternehmen: Logs von Servern, Netzwerkgeräten,
+Windows-Systemen und Docker-Containern zentral sammeln, durchsuchen und bei verdächtigen
+Ereignissen alarmieren – in **einem einzigen Docker-Container**, ohne externe Datenbank.
 
-## Architektur
+- **Sammeln:** Syslog (UDP/TCP/TLS), HTTP/JSON, Splunk-HEC-kompatibel (Docker-Logtreiber `splunk`),
+  Windows-Ereignisprotokolle über Fluent Bit oder NXLog
+- **Verstehen:** Erkennt automatisch Benutzer, IP-Adressen, Ports und Aktionen aus sshd, sudo,
+  Firewalls (iptables/UFW, key=value) und Windows-Sicherheitsereignissen
+- **Suchen:** Volltext und Felder, Zeitverlauf, häufige Werte, CSV-Export
+- **Erkennen:** 16 mitgelieferte Regeln (SSH-Brute-Force, Password-Spraying, Portscan, neue Admins,
+  gelöschte Ereignisprotokolle …), eigene Regeln mit derselben Syntax wie die Suche, Test gegen
+  vorhandene Daten
+- **Bearbeiten:** Alarme übernehmen, kommentieren, schließen; Rollen *Nur lesen*, *Analyst*, *Administrator*
+- **Warten:** Eine Datei pro Tag, Aufbewahrung = alte Dateien löschen, Sicherung mit einem Befehl
 
-- Frontend: React, Vite, TypeScript, Tailwind CSS, Recharts, Lucide Icons
-- Backend: Python 3.12, FastAPI, SQLAlchemy, Pydantic, JWT, Argon2
-- Datenhaltung: PostgreSQL fuer SIEM-Metadaten, OpenSearch fuer Logs und Suche
-- Jobs: Redis und Celery Worker mit periodischer Detection und Retention
-- Ingestion: REST API, Syslog UDP Demo-Service, Fluent Bit HTTP Output
-- Security: RBAC, Mandantentrennung, API-Key-Hashing, Audit Logging, Rate Limits, sichere Header
+Die Oberfläche ist komplett auf Deutsch, hell und dunkel, und funktioniert auch auf dem Smartphone.
 
-## Projektstruktur
+---
 
-```text
-backend/              FastAPI, Modelle, Services, Detection Engine, Tests
-frontend/             React SOC-Konsole
-syslog-receiver/      UDP Syslog Forwarder
-scripts/              Demo Seed, Demo Log Import, Detection Run
-docs/                 Architektur, Security, API, Deployment, Betrieb
-fluent-bit/           Optionale Fluent Bit Demo-Konfiguration
-docker-compose.yml    Vollstaendiges lokales Deployment
-```
+## Schnellstart
 
-## Lokal starten
-
-1. `.env.example` optional nach `.env` kopieren und Secrets anpassen.
-2. Docker starten.
-3. Plattform bauen und starten:
+Voraussetzung: ein Linux-Server (oder VM) mit Docker und Docker Compose.
 
 ```bash
-docker compose up --build
+git clone https://github.com/jessehaemmerle/mini-siem.git
+cd mini-siem
+cp .env.example .env        # optional: Zeitzone, Admin-Passwort usw. anpassen
+docker compose up -d --build
 ```
 
-Die Initialisierung laeuft automatisch ueber den Service `demo-init`: Schema, Demo-Mandant, Demo-User, Quellen, API-Key, IOCs, Detection Rules, Demo-Logs und ein erster Detection-Lauf.
-
-Wenn PostgreSQL mit `password authentication failed for user "siem"` startet, passt das bestehende Docker-Volume nicht zu den aktuellen Zugangsdaten. Fuer eine frische lokale Demo kann es geloescht und neu initialisiert werden:
+Beim ersten Start wird ein Admin-Konto angelegt. Das Passwort steht im Log:
 
 ```bash
-docker compose down -v
-docker compose up --build
+docker compose logs siem | grep -A3 "Erstes Admin-Konto"
 ```
 
-Wenn die bestehenden PostgreSQL-Daten erhalten bleiben sollen, kann stattdessen das Passwort im laufenden Container auf den Compose-Standard zurueckgesetzt werden:
+Dann im Browser `http://<server>:8080` öffnen, anmelden und unter **Quellen → Neue Quelle anbinden**
+den Schritt-für-Schritt-Anleitungen folgen. Dort stehen fertige, kopierbare Konfigurationen für
+Linux (rsyslog), Netzwerkgeräte, Windows, Docker und eigene Anwendungen – bereits mit der richtigen
+Adresse und auf Wunsch mit einem frisch erstellten Token.
+
+**Zum Ausprobieren** ohne echte Quellen (sendet normalen Betrieb und einige Angriffe):
 
 ```bash
-docker compose exec -u postgres postgres psql -U siem -d siem -c "ALTER USER siem WITH PASSWORD 'siem_dev_password';"
-docker compose up --build
+python3 scripts/demo_logs.py --host <server>
 ```
 
-Nach dem Start:
+### Ports
 
-- Frontend: http://localhost:8080
-- Backend API Docs: http://localhost:8000/api/docs
-- OpenSearch: http://localhost:9200
-- OpenSearch Dashboards: http://localhost:5601
+| Port | Zweck |
+|------|-------|
+| 8080/tcp | Weboberfläche, REST-API, HTTP-Ingest, Splunk-HEC |
+| 514/udp, 514/tcp | Syslog (im Container 1514, siehe `docker-compose.yml`) |
 
-## Demo-Logins
+---
 
-- `admin@example.com` / `Admin123!`
-- `analyst@example.com` / `Analyst123!`
-- `auditor@example.com` / `Auditor123!`
-- `viewer@example.com` / `Viewer123!`
+## Bedienung in Kürze
 
-Demo Ingestion API-Key:
+| Seite | Wofür |
+|-------|-------|
+| **Übersicht** | Lagebild in einem Satz, Eventverlauf, offene Alarme, aktivste Hosts, stille Quellen |
+| **Suche** | Events durchsuchen; Klick auf eine Zeile zeigt alle Felder, Klick auf Werte filtert |
+| **Alarme** | Alarme übernehmen, kommentieren, schließen (mit Ergebnis), Sammelaktionen |
+| **Regeln** | Erkennungsregeln an-/abschalten, bearbeiten, gegen vorhandene Daten testen |
+| **Quellen** | Welche Geräte senden? Wer ist still geworden? Anleitungen und Ingest-Tokens |
+| **Benutzer** | Konten und Rollen (nur Administratoren) |
+| **System** | Zustand, Speicherplatz, Aufbewahrung, Protokoll aller Änderungen |
 
-```text
-siem_demo_ingest_key_change_me
-```
+### Suchsyntax
 
-## Demo-Kommandos
+| Beispiel | Bedeutung |
+|----------|-----------|
+| `Failed password` | alle Wörter kommen vor |
+| `"Failed password"` | genau diese Wortfolge |
+| `pass*` | Wortanfang |
+| `host:web01` | Feld hat diesen Wert (Groß-/Kleinschreibung egal) |
+| `host:web*` | Platzhalter `*` und `?` |
+| `src_ip:10.0.0.0/8` | IP-Adresse im Netz |
+| `severity:<=warning` | Vergleich (`>`, `>=`, `<`, `<=`) |
+| `user:*` | Feld ist vorhanden |
+| `-app:cron` oder `NOT app:cron` | ausschließen |
+| `host:a OR host:b` | oder, Klammern erlaubt |
+| `data.status:500` | Feld aus den Originaldaten (JSON, key=value) |
+| `user:~"^adm"` | regulärer Ausdruck |
+
+Felder: `host`, `app`, `severity`, `facility`, `category`, `event_id`, `user`, `src_ip`, `dst_ip`,
+`dst_port`, `action`, `input`, `source_ip`, `message`, `data.<name>`. Kurzformen: `ip` (alle IP-Felder),
+`port`, `sev`, `msg`. Schweregrade: `emerg`, `alert`, `crit`, `error`, `warning`, `notice`, `info`, `debug` (0–7).
+
+### Regeln
+
+Eine Regel ist eine gespeicherte Suche plus „wann alarmieren“:
+
+- **bei jedem Treffer** – z. B. `event_id:1102` (Sicherheitsprotokoll gelöscht)
+- **ab einer Anzahl von Treffern** im Zeitfenster – z. B. 10 fehlgeschlagene SSH-Anmeldungen in 5 Minuten
+- **ab einer Anzahl verschiedener Werte** – z. B. 25 verschiedene Zielports von einer IP in 2 Minuten (Portscan)
+
+Mit **Getrennt zählen je** entsteht pro Wert (z. B. je Angreifer-IP) ein eigener Alarm. Weitere Treffer
+fließen in den offenen Alarm ein, statt eine Alarmflut zu erzeugen. Jede Suche lässt sich mit
+**Als Regel speichern** direkt in eine Regel übernehmen.
+
+### Rollen
+
+| Rolle | Darf |
+|-------|------|
+| Nur lesen | alles ansehen |
+| Analyst | zusätzlich Alarme bearbeiten, Regeln und Quellen pflegen |
+| Administrator | zusätzlich Benutzer, Ingest-Tokens und Einstellungen verwalten |
+
+---
+
+## Betrieb und Wartung
+
+Die wichtigsten Befehle (Details in [docs/betrieb.md](docs/betrieb.md)):
 
 ```bash
-docker compose run --rm backend python ../scripts/seed_demo_data.py
-docker compose run --rm backend python ../scripts/import_demo_logs.py
-docker compose run --rm backend python ../scripts/run_detection_once.py
+docker compose logs -f siem                               # Log ansehen
+git pull && docker compose up -d --build                  # Aktualisieren
+docker compose exec siem python -m siem backup            # Sicherung nach /data/backups
+docker compose exec siem python -m siem passwort admin    # Passwort vergessen
 ```
 
-## Log-Ingestion
+**Speicherbedarf:** rund 0,5 KB pro Event inklusive Suchindex. Beispiel: 1 Mio. Events pro Tag
+≈ 0,5 GB pro Tag ≈ 45 GB bei 90 Tagen Aufbewahrung. Die Seite **System** zeigt den tatsächlichen
+Verbrauch und wie lange der freie Platz noch reicht.
 
-Einzelnes JSON-Event:
+**Leistung:** gemessen im Container auf einem CPU-Kern ca. 7.500 Events pro Sekunde dauerhaft;
+Suchen über einen Tag dauern typischerweise unter einer Sekunde. Der Container braucht etwa 200 MB RAM.
 
-```bash
-curl -X POST http://localhost:8000/api/ingest/logs \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: siem_demo_ingest_key_change_me" \
-  -d '{"source_type":"linux","source_name":"manual","hostname":"linux01","severity":"medium","message":"Failed password for alice from 198.51.100.10","user":"alice","src_ip":"198.51.100.10"}'
+**HTTPS:** Die Oberfläche hinter einen Reverse-Proxy (z. B. Caddy, Traefik, nginx) stellen und
+`SIEM_COOKIE_SECURE=true` setzen – Beispiel in [docs/betrieb.md](docs/betrieb.md#https).
+
+### Konfiguration
+
+Alle Einstellungen sind optional und werden in `.env` gesetzt. Aufbewahrung, Ruhezeit für
+„stille“ Quellen und automatische Abmeldung lassen sich zusätzlich in der Oberfläche ändern.
+
+| Variable | Standard | Bedeutung |
+|----------|----------|-----------|
+| `TZ` | `Europe/Vienna` | Zeitzone für Syslog-Meldungen ohne Zeitzonenangabe |
+| `SIEM_ADMIN_USER` | `admin` | Name des ersten Kontos |
+| `SIEM_ADMIN_PASSWORD` | *(erzeugt)* | Passwort des ersten Kontos (nur beim allerersten Start) |
+| `SIEM_RETENTION_DAYS` | `90` | Aufbewahrung beim ersten Start |
+| `SIEM_SYSLOG_ALLOW` | *(alle)* | Syslog nur aus diesen Netzen, z. B. `10.0.0.0/8,192.168.0.0/16` |
+| `SIEM_COOKIE_SECURE` | `false` | `true` bei Betrieb über HTTPS |
+| `SIEM_TRUSTED_PROXIES` | `127.0.0.1` | Reverse-Proxys, deren `X-Forwarded-For` vertraut wird |
+| `SIEM_PUBLIC_SYSLOG_PORT` | `514` | Syslog-Port in den Anleitungen der Oberfläche |
+| `SIEM_SYSLOG_TLS_PORT` | `0` (aus) | Syslog über TLS, benötigt `SIEM_TLS_CERT` und `SIEM_TLS_KEY` |
+| `SIEM_QUERY_TIMEOUT` | `30` | maximale Dauer einer Suche in Sekunden |
+| `SIEM_QUEUE_SIZE` | `200000` | Puffer für eingehende Events bei Lastspitzen |
+
+---
+
+## Aufbau
+
+```
+                    ┌──────────────────────── Container ─────────────────────────┐
+ Syslog UDP/TCP ──▶ │ Empfänger ─┐                                                │
+ HTTP / HEC ──────▶ │ REST-API ──┴▶ Warteschlange ▶ Parser ▶ Speicher ▶ Erkennung │
+ Browser ─────────▶ │ Weboberfläche ◀──────── Suche ◀───┘          │            │
+                    │                                    Tagesdateien  Alarme     │
+                    └─────────────── /data (Volume) ─────────────────────────────┘
 ```
 
-Array von Events:
+- Python 3 mit FastAPI, eine einzige Prozess-Instanz; Oberfläche ohne Build-Schritt (HTML/CSS/JS)
+- `data/siem.db` – Benutzer, Regeln, Alarme, Einstellungen, Änderungsprotokoll
+- `data/events/JJJJ-MM-TT.db` – Events eines Tages mit Volltextindex (SQLite FTS5)
 
-```bash
-curl -X POST http://localhost:8000/api/ingest/logs \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: siem_demo_ingest_key_change_me" \
-  -d '[{"source_type":"firewall","source_name":"fw01","action":"deny","src_ip":"198.51.100.250","dst_ip":"10.10.1.10","message":"Firewall deny tcp connection"}]'
-```
+Hinweise für Entwickler stehen in [docs/entwicklung.md](docs/entwicklung.md).
 
-Syslog HTTP-Demo:
+## Lizenz
 
-```bash
-curl -X POST http://localhost:8000/api/ingest/syslog \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: siem_demo_ingest_key_change_me" \
-  -d '{"line":"<134>May 12 10:30:00 linux01 sshd: Failed password for root from 198.51.100.77 port 50022 ssh2"}'
-```
-
-Syslog UDP:
-
-```bash
-echo "<134>May 12 10:30:00 linux01 sshd: Failed password for root from 198.51.100.77 port 50022 ssh2" | nc -u -w1 localhost 5514
-```
-
-Fluent Bit Demo:
-
-```bash
-docker compose --profile fluent-bit up fluent-bit
-```
-
-## Detection Rules und Alerts
-
-Die Demo enthaelt Regeln fuer Brute Force, erfolgreichen Login nach Fehlversuchen, Admin-Gruppenaenderung, neue Konten, deaktiviertes EDR/AV, Malware, PowerShell EncodedCommand, geloeschtes Eventlog, Firewall-Block-Spikes, VPN aus ungewoehnlichem Land, Root-SSH, sudo durch nicht privilegierte User, bekannte boesartige IP und Ransomware-Dateiaenderungen. Alerts koennen bestaetigt, untersucht, geloest, zu Incidents verknuepft und als False Positive markiert werden.
-
-## Mandanten und Rollen
-
-Jeder Benutzer ist einem oder mehreren Mandanten zugeordnet. Backend-Dependencies erzwingen Mandantenzugriff fuer Logs, Alerts, Incidents, Reports, IOCs, Quellen und Regeln. `super_admin` darf alle Mandanten sehen, alle anderen Rollen werden auf ihre Memberships begrenzt.
-
-## Reports
-
-Reports werden im Backend erzeugt und gespeichert. Demo-Typen sind Daily Security Report, Weekly Management Report, Monthly Compliance Report und Alert Summary. JSON und CSV-Export sind implementiert; PDF ist als lokale Text-PDF-Demo vorbereitet.
-
-## Retention
-
-Pro Mandant gibt es eine Retention Policy. Der Worker fuehrt periodisch einen Metadaten-Retention-Lauf aus. OpenSearch Index Lifecycle ist ueber Index-Templates vorbereitet; fuer Produktion sollte eine echte ISM/ILM-Policy in OpenSearch aktiviert werden.
-
-## Security-Hinweise
-
-- `JWT_SECRET`, `API_KEY_HASH_SECRET` und Datenbankpasswort in `.env` ersetzen.
-- OpenSearch Security Plugin ist in der lokalen Demo deaktiviert. In Produktion aktivieren.
-- TLS ueber Reverse Proxy terminieren, z. B. Traefik, Caddy oder Nginx.
-- SMTP/Webhook-Ziele nur ueber sichere Kanaele verwenden.
-- API-Keys werden gehasht gespeichert und nur bei Erstellung/Rotation angezeigt.
-
-## Backup-Hinweise
-
-- PostgreSQL: regelmaessige `pg_dump` Backups.
-- OpenSearch: Snapshot Repository konfigurieren.
-- `.env`, Reverse-Proxy-Konfiguration und Docker Compose versionieren, echte Secrets separat verwalten.
-
-## Tests
-
-Backend:
-
-```bash
-cd backend
-python -m pytest tests -q
-```
-
-Frontend:
-
-```bash
-cd frontend
-npm install
-npm test
-```
-
-## Troubleshooting
-
-- OpenSearch startet nicht: Docker RAM pruefen und ggf. `vm.max_map_count` erhoehen.
-- Keine Demo-Daten: `docker compose run --rm backend python ../scripts/import_demo_logs.py` ausfuehren.
-- Login schlaegt fehl: `docker compose logs demo-init backend` pruefen.
-- Frontend API-Fehler: Backend unter http://localhost:8000/api/health testen.
+MIT, siehe [LICENSE](LICENSE). Die mitgelieferte Schrift *Atkinson Hyperlegible* steht unter der
+SIL Open Font License ([siem/static/fonts/OFL.txt](siem/static/fonts/OFL.txt)).
