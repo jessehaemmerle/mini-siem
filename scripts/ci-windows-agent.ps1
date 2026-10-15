@@ -22,7 +22,8 @@ function Show-Logs {
             $from = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - 7200
             foreach ($q in @('input:agent', 'event_id:778', 'app:MiniSIEME2E')) {
                 $r = Invoke-RestMethod -Uri "$base/api/events" -WebSession $session -Headers $h -Body @{ q = $q; from = $from; limit = 15 }
-                Write-Host "----- Suche '$q': $(@($r.events).Count) Treffer (neueste zuerst) -----"
+                if ($r -is [string]) { Write-Host "----- Suche '$q': Antwort ist für PowerShell kein lesbares JSON -----"; continue }
+                Write-Host "----- Suche '$q': $(@($r.events | Where-Object { $_ }).Count) Treffer (neueste zuerst) -----"
                 $r.events | ForEach-Object {
                     $t = [DateTimeOffset]::FromUnixTimeMilliseconds([long]($_.ts * 1000)).UtcDateTime.ToString('HH:mm:ss')
                     $msg = "$($_.message)"; if ($msg.Length -gt 90) { $msg = $msg.Substring(0, 90) }
@@ -73,6 +74,8 @@ eventcreate /T ERROR /ID 778 /L APPLICATION /SO MiniSIEME2E /D $marker
 if ($LASTEXITCODE -ne 0) { throw "eventcreate fehlgeschlagen (Code $LASTEXITCODE)." }
 $written = Get-WinEvent -FilterHashtable @{ LogName = 'Application'; Id = 778 } -MaxEvents 1
 Write-Host "Geschrieben: Record $($written.RecordId), Stufe $($written.Level), $($written.TimeCreated.ToUniversalTime().ToString('HH:mm:ss')) UTC, Quelle $($written.ProviderName): $($written.Message)"
+# Bewusst Invoke-RestMethod: prüft nebenbei, dass PowerShell die Antworten der API lesen kann
+# (keine Schlüssel, die sich nur in Groß-/Kleinschreibung unterscheiden).
 $deadline = (Get-Date).AddSeconds(180)
 $hit = $null
 do {

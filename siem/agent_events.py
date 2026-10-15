@@ -102,8 +102,17 @@ def _winlog(ev: dict, obj: dict, agent_host: str) -> None:
         win["Message"] = obj["msg"]
     parsers.apply_windows(ev, win)
     ev["host"] = agent_host
-    data = dict(ev.get("data") or {})
-    data["src"] = "winlog"
+    # Eigene, schlanke Struktur statt der Rohform: Metadaten klein geschrieben, EventData flach,
+    # keine doppelten Schlüssel (siehe parsers.merge_keys)
+    derived = {k: v for k, v in (ev.get("data") or {}).items() if k not in win}
+    data = {"src": "winlog"}
+    for key, value in (("channel", obj.get("channel")), ("provider", obj.get("provider")),
+                       ("record_id", obj.get("record_id")), ("keywords", obj.get("keywords")),
+                       ("task", obj.get("task"))):
+        if value not in (None, ""):
+            data[key] = value
+    parsers.merge_keys(data, derived, on_conflict="skip")
+    parsers.merge_keys(data, win["EventData"], on_conflict="rename")
     ev["data"] = data
 
 

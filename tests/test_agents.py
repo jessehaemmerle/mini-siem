@@ -229,3 +229,32 @@ def test_builtin_rule_upgrade(settings):
     rows = {r["key"]: r["query"] for r in core.db.all("SELECT key, query FROM rules")}
     assert rows["ssh-bruteforce"] == "app:sshd* category:authentication action:failure"
     assert rows["ssh-root-login"].endswith("host:web*"), "selbst geänderte Regeln bleiben unangetastet"
+
+
+def _no_case_duplicates(d: dict) -> bool:
+    keys = [k.lower() for k in d]
+    return len(keys) == len(set(keys))
+
+
+def test_winlog_data_has_no_case_duplicates():
+    """PowerShell (ConvertFrom-Json) scheitert an Schlüsseln, die sich nur in der Schreibung unterscheiden."""
+    ev = parse_agent_event({
+        "src": "winlog", "t": time.time(), "channel": "System", "provider": "Microsoft-Windows-Eventlog",
+        "event_id": 104, "level": 4, "keywords": "0x8000000000000000", "record_id": 77, "computer": "dc01",
+        # Ereignis 104 nennt in den Nutzdaten das geleerte Protokoll – ebenfalls „Channel“
+        "data": {"SubjectUserName": "admin", "Channel": "Application", "UserSID": "S-1-5-21-1"},
+        "msg": "Das Protokoll „Application“ wurde gelöscht.",
+    }, "dc01", None)
+    d = ev["data"]
+    assert _no_case_duplicates(d), d
+    assert d["channel"] == "System" and d["Channel_data"] == "Application"
+    assert d["SubjectUserName"] == "admin" and d["record_id"] == 77 and "EventData" not in d
+
+
+def test_http_windows_event_keeps_original_without_duplicates():
+    from siem.parsers import parse_json_event
+
+    ev = parse_json_event({"EventID": 4625, "Channel": "Security", "Computer": "PC1", "Level": 0,
+                           "Keywords": "Audit Failure", "TargetUserName": "bob", "IpAddress": "10.0.0.9"}, "10.0.0.1")
+    assert _no_case_duplicates(ev["data"]), ev["data"]
+    assert ev["data"]["Channel"] == "Security" and ev["user"] == "bob"

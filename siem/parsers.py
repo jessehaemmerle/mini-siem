@@ -624,8 +624,30 @@ def apply_windows(ev: dict, obj: dict) -> None:
         ev["message"] = json.dumps(obj, ensure_ascii=False, separators=(",", ":"), default=str)[:4000]
 
     full = dict(obj)
-    full.update(data)
+    merge_keys(full, data, on_conflict="skip")  # z. B. „channel“ nicht neben dem Original „Channel“
     ev["data"] = full
+
+
+def merge_keys(target: dict, extra: dict, on_conflict: str = "skip") -> dict:
+    """Übernimmt Schlüssel, ohne dass zwei sich nur in Groß-/Kleinschreibung unterscheiden.
+
+    Solches JSON ist zwar gültig, viele Programme (z. B. PowerShell) können es aber nicht
+    lesen. Bei einem Konflikt wird der neue Wert übersprungen (``skip``) oder unter
+    ``<Name>_data`` abgelegt (``rename``). Gleich geschriebene Schlüssel werden überschrieben.
+    """
+    lower = {k.lower(): k for k in target}
+    for k, v in extra.items():
+        existing = lower.get(k.lower())
+        if existing is None or existing == k:
+            target[k] = v
+            lower[k.lower()] = k
+        elif on_conflict == "rename":
+            alt = f"{k}_data"
+            while alt.lower() in lower:
+                alt += "_"
+            target[alt] = v
+            lower[alt.lower()] = alt
+    return target
 
 
 # ---------------------------------------------------------------------------
