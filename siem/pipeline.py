@@ -1,6 +1,6 @@
 """Verarbeitungs-Pipeline: Warteschlange -> Parsen -> Speichern -> Erkennen.
 
-Empfänger (Syslog, HTTP) legen Rohdaten nur in die Warteschlange. Ein
+Empfänger (Syslog, HTTP, Agenten, Microsoft-365-Connector) legen Rohdaten nur in die Warteschlange. Ein
 einzelner Hintergrund-Thread parst sie in Stapeln, schreibt sie in die
 Tagesdateien, wertet die Erkennungsregeln aus und pflegt die Quellenliste.
 Damit bleibt die Weboberfläche auch unter Last reaktionsschnell.
@@ -15,6 +15,8 @@ import time
 from collections import defaultdict, deque
 
 from . import parsers
+from .agent_events import parse_agent_event
+from .m365_events import parse_m365
 
 log = logging.getLogger("siem.pipeline")
 
@@ -39,6 +41,8 @@ class Pipeline:
         self._rate: deque = deque()
         self._last_maintenance = 0.0
         self._idle = True
+        self.hooks: list = []          # werden höchstens alle 10 s im Pipeline-Thread aufgerufen
+        self._last_hooks = 0.0
         self.token_usage: dict[int, int] = defaultdict(int)
         self._token_lock = threading.Lock()
         self.retention_days = int(db.get_setting("retention_days") or settings.default_retention_days)
@@ -85,6 +89,18 @@ class Pipeline:
             if time.time() - self._last_maintenance > MAINTENANCE_INTERVAL:
                 self.maintenance()
             self._flush_tokens()
+            if time.time() - self._last_hooks > 10:
+                self._last_hooks = time.time()
+                for hook in self.hooks:
+                    try:
+                        hook()
+                    except Exception:  # noqa: BLE001
+                        log.exception("Fehler in periodischer Aufgabe")
+        for hook in self.hooks:
+            try:
+                hook()
+            except Exception:  # noqa: BLE001
+                log.exception("Fehler in periodischer Aufgabe")
         log.info("Pipeline beendet")
 
     def _collect(self) -> list:
@@ -125,6 +141,12 @@ class Pipeline:
                 return parsers.parse_text_line(payload, source_ip, "http", received)
             if kind == "hec":
                 return parsers.parse_hec_event(payload, source_ip, received)
+            if kind == "agent":
+                obj, agent_host = payload
+                return parse_agent_event(obj, agent_host, source_ip, received)
+            if kind == "m365":
+                sub, record = payload
+                return parse_m365(sub, record, received)
             if kind == "event":
                 return parsers.finalize(payload)
         except Exception:  # noqa: BLE001

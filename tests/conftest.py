@@ -18,6 +18,7 @@ def settings(tmp_path):
     s.syslog_tls_port = 0
     s.admin_user = "admin"
     s.admin_password = ADMIN_PW
+    s.agent_dist_dir = tmp_path / "agent-dist"
     return s
 
 

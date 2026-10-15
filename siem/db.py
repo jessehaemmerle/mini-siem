@@ -110,6 +110,40 @@ MIGRATIONS: list[str] = [
     );
     CREATE INDEX ix_audit_ts ON audit_log(ts);
     """,
+    # Version 2: Agenten und Connectoren (Microsoft 365)
+    """
+    CREATE TABLE agents (
+        id INTEGER PRIMARY KEY,
+        machine_id TEXT NOT NULL UNIQUE,
+        hostname TEXT NOT NULL,
+        name TEXT,
+        os TEXT,
+        os_version TEXT,
+        arch TEXT,
+        version TEXT,
+        ip TEXT,
+        token_hash TEXT NOT NULL UNIQUE,
+        enrolled REAL NOT NULL,
+        last_seen REAL,
+        config TEXT,
+        stats TEXT,
+        events INTEGER NOT NULL DEFAULT 0,
+        disabled INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE TABLE connector_state (
+        connector TEXT NOT NULL,
+        key TEXT NOT NULL,
+        value TEXT NOT NULL,
+        updated REAL NOT NULL,
+        PRIMARY KEY (connector, key)
+    );
+    CREATE TABLE connector_seen (
+        connector TEXT NOT NULL,
+        item TEXT NOT NULL,
+        ts REAL NOT NULL,
+        PRIMARY KEY (connector, item)
+    ) WITHOUT ROWID;
+    """,
 ]
 
 DEFAULT_SETTINGS: dict[str, Any] = {
@@ -117,6 +151,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "source_silent_minutes": 60,
     "session_hours": 12,
     "alert_retention_days": 365,
+    "agent_auto_update": True,
 }
 
 

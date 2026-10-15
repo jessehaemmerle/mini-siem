@@ -21,6 +21,7 @@ services:
       SIEM_COOKIE_SECURE: ${SIEM_COOKIE_SECURE:-false}
       SIEM_PUBLIC_SYSLOG_PORT: ${SIEM_PUBLIC_SYSLOG_PORT:-514}
       SIEM_TRUSTED_PROXIES: ${SIEM_TRUSTED_PROXIES:-127.0.0.1}
+      SIEM_PUBLIC_URL: ${SIEM_PUBLIC_URL:-}
     volumes:
       - siem-data:/data
     logging:

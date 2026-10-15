@@ -58,6 +58,13 @@ class Settings:
     # in der Oberfläche – entspricht der Port-Freigabe in docker-compose.yml)
     public_syslog_port: int = field(default_factory=lambda: _env_int("PUBLIC_SYSLOG_PORT", 514))
 
+    # Öffentliche Adresse des SIEM (für Installationsbefehle der Agenten), z. B.
+    # https://siem.firma.local – leer = Adresse, unter der die Oberfläche aufgerufen wird
+    public_url: str = field(default_factory=lambda: _env("PUBLIC_URL").rstrip("/"))
+
+    # Verzeichnis mit den Agent-Programmdateien (im Container: /app/agent-dist)
+    agent_dist_dir: Path = field(default_factory=lambda: Path(_env("AGENT_DIST", "/app/agent-dist")))
+
     # Erstes Admin-Konto (nur beim allerersten Start relevant)
     admin_user: str = field(default_factory=lambda: _env("ADMIN_USER", "admin"))
     admin_password: str = field(default_factory=lambda: _env("ADMIN_PASSWORD"))

@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import __version__
-from .api import admin, alerts, auth_routes, events, ingest, rules
+from .api import admin, agents, alerts, auth_routes, events, ingest, m365, rules
 from .config import Settings
 from .core import Core
 from .receivers import start_receivers, stop_receivers
@@ -35,12 +35,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         core.pipeline.start()
+        core.m365.start()
         servers = await start_receivers(settings, core.pipeline)
         log.info("Mini-SIEM %s bereit – Weboberfläche auf Port %d", __version__, settings.http_port)
         try:
             yield
         finally:
             await stop_receivers(servers)
+            core.m365.stop()
             core.pipeline.stop()
 
     app = FastAPI(
@@ -68,7 +70,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             h.setdefault("Cache-Control", "no-store")
         return response
 
-    for module in (auth_routes, events, alerts, rules, admin, ingest):
+    for module in (auth_routes, events, alerts, rules, admin, ingest, agents, m365):
         app.include_router(module.router)
 
     @app.get("/api/health", tags=["System"])

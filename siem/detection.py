@@ -33,6 +33,14 @@ SEVERITIES = ("low", "medium", "high", "critical")
 GROUP_FIELDS = tuple(f for f in q.FIELDS if f != "message")
 MAX_SAMPLES = 20
 MAX_KEYS_PER_RULE = 100_000
+PRUNE_GRACE = 3600  # Zustand einer Gruppe bleibt nach dem letzten Treffer so lange länger erhalten
+
+# Bei diesen Eingängen ist die Ereigniszeit verlässlich, die Lieferung aber verzögert
+# (Microsoft 365: Überwachungsprotokoll mit Stunden Verzögerung; Agent: Puffer nach Ausfall).
+# Hier zählt deshalb die Ereigniszeit – sonst sähen 100 Löschungen über zwei Stunden, die
+# gemeinsam ankommen, wie 100 Löschungen in einer Minute aus. Für Syslog und HTTP bleibt
+# die Empfangszeit maßgeblich, weil Geräte oft mit falscher Uhr oder Zeitzone senden.
+EVENT_TIME_INPUTS = frozenset({"agent", "m365"})
 
 SAMPLE_FIELDS = ("ref", "ts", "host", "app", "severity", "user", "src_ip", "dst_ip", "dst_port",
                  "event_id", "action", "input")
@@ -102,6 +110,8 @@ class _GroupState:
     samples: deque = field(default_factory=lambda: deque(maxlen=MAX_SAMPLES))
     hosts: set = field(default_factory=set)
     active_until: float = float("-inf")  # nach dem Auslösen zählt jeder weitere Treffer sofort
+    last: float = float("-inf")          # Uhr läuft je Gruppe nur vorwärts (verspätete Events)
+    touched: float = 0.0                 # Wanduhrzeit des letzten Treffers (zum Aufräumen)
 
 
 @dataclass
@@ -131,18 +141,25 @@ def _value(ev: dict, fieldname: str | None):
 class Detector:
     """Reine Logik ohne Datenbank – wird live und für Regeltests verwendet."""
 
-    def __init__(self, rules: list[CompiledRule], clock_field: str = "received"):
+    def __init__(self, rules: list[CompiledRule], clock_field: str = "received",
+                 event_time_inputs: frozenset = EVENT_TIME_INPUTS):
         self.rules = rules
         self.clock_field = clock_field
+        self.event_time_inputs = event_time_inputs
         self.state: dict[tuple, _GroupState] = {}
         self._last_prune = 0.0
 
+    def _clock(self, ev: dict) -> float:
+        t = ev.get("ts") if ev.get("input") in self.event_time_inputs else ev.get(self.clock_field)
+        if t is None:
+            t = ev.get("ts") if ev.get("ts") is not None else time.time()
+        return t
+
     def process(self, events: list[dict]) -> list[Firing]:
         firings: dict[tuple, Firing] = {}
-        for ev in events:
-            now = ev.get(self.clock_field)
-            if now is None:
-                now = ev.get("ts") if ev.get("ts") is not None else time.time()
+        wall = time.time()
+        # Nach Zeit sortiert auswerten: Stapel (z. B. Microsoft Graph) kommen auch absteigend an
+        for t, ev in sorted(((self._clock(e), e) for e in events), key=lambda x: x[0]):
             for rule in self.rules:
                 try:
                     if not rule.matcher(ev):
@@ -162,6 +179,8 @@ class Detector:
                 dv = _value(ev, rule.distinct_field) if rule.distinct_field else None
                 if rule.distinct_field and dv in (None, ""):
                     continue
+                now = st.last = max(t, st.last)
+                st.touched = wall
                 if now <= st.active_until:
                     # Alarm läuft bereits: Treffer direkt hinzurechnen
                     st.active_until = now + rule.window
@@ -202,17 +221,17 @@ class Detector:
                 st.samples.clear()
                 st.hosts = set()
                 st.active_until = now + rule.window
-            if now - self._last_prune > 60:
-                self._prune(now)
+        if wall - self._last_prune > 60:
+            self._prune(wall)
         return list(firings.values())
 
-    def _prune(self, now: float) -> None:
-        self._last_prune = now
+    def _prune(self, wall: float) -> None:
+        """Entfernt Gruppen ohne Treffer seit Zeitfenster + Karenz (gemessen an der Wanduhr)."""
+        self._last_prune = wall
         windows = {r.id: r.window for r in self.rules}
         for key in list(self.state):
-            st = self.state[key]
             w = windows.get(key[0])
-            if w is None or (st.active_until < now and (not st.hits or st.hits[-1][0] < now - w)):
+            if w is None or self.state[key].touched < wall - w - PRUNE_GRACE:
                 del self.state[key]
 
 

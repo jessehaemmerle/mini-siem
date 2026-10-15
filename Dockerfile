@@ -1,4 +1,26 @@
 # Mini-SIEM – ein Container: Weboberfläche, Syslog-Empfang, Speicher, Erkennung
+# und die Programmdateien des Agenten für Windows und Linux.
+
+# ---------------------------------------------------------------- Agent bauen
+# Läuft auf der Plattform des Build-Rechners; Go übersetzt für alle Zielsysteme.
+FROM --platform=$BUILDPLATFORM golang:1.24-bookworm AS agent
+ENV CGO_ENABLED=0 GOTOOLCHAIN=local
+WORKDIR /src
+COPY agent/go.mod agent/go.sum ./
+RUN go mod download
+COPY agent/ ./
+COPY siem/__init__.py /tmp/version.py
+RUN set -e; \
+    VERSION=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' /tmp/version.py); \
+    mkdir -p /out; \
+    for target in linux/amd64 linux/arm64 windows/amd64; do \
+      os=${target%/*}; arch=${target#*/}; ext=""; [ "$os" = windows ] && ext=".exe"; \
+      GOOS=$os GOARCH=$arch go build -trimpath -ldflags "-s -w -X main.version=$VERSION" \
+        -o "/out/mini-siem-agent-$os-$arch$ext" .; \
+    done; \
+    echo "$VERSION" > /out/VERSION
+
+# ---------------------------------------------------------------- SIEM
 FROM python:3.13-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -18,6 +40,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 COPY siem ./siem
+COPY --from=agent /out /app/agent-dist
 
 USER siem
 VOLUME ["/data"]

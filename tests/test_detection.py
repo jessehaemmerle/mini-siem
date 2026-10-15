@@ -72,3 +72,33 @@ def test_hits_after_firing_are_added():
     assert len(more) == 1 and more[0].count == 2
     # nach Ablauf des Fensters muss die Schwelle wieder erreicht werden
     assert d.process([ev(200)]) == []
+
+
+def test_delayed_batch_uses_event_time():
+    """Microsoft 365 liefert stundenweise verspätet: 100 Löschungen über zwei Stunden, die
+    gemeinsam ankommen, sind kein Massenlöschen – 100 in fünf Minuten schon."""
+    r = rule(query="action:deleted", threshold=100, window=600, group_by="user")
+    spread = [ev(1000 + i * 72, received=9000, input="m365", action="deleted", user="a") for i in range(100)]
+    assert Detector([r]).process(spread) == []
+    burst = [ev(1000 + i * 3, received=9000, input="m365", action="deleted", user="a") for i in range(100)]
+    fired = Detector([r]).process(burst)
+    assert len(fired) == 1 and fired[0].first_seen == 1000 and fired[0].last_seen == 1000 + 99 * 3
+
+
+def test_unsorted_batch_and_late_events():
+    r = rule(threshold=3, window=60)
+    d = Detector([r])
+    # absteigend geliefert (wie Microsoft Graph) – wird nach Zeit sortiert ausgewertet
+    fired = d.process([ev(30, input="agent", received=500), ev(20, input="agent", received=500),
+                       ev(10, input="agent", received=500)])
+    assert len(fired) == 1 and fired[0].first_seen == 10
+    # ein noch älteres Event danach stört die Gruppe nicht (Uhr läuft je Gruppe nur vorwärts)
+    out = d.process([ev(5, input="agent", received=600)])
+    assert len(out) == 1 and out[0].last_seen == 30
+
+
+def test_syslog_keeps_receive_time():
+    """Geräte mit falscher Zeitzone: Für Syslog zählt weiter die Empfangszeit."""
+    r = rule(threshold=3, window=60)
+    events = [ev(t, received=1000 + i, input="syslog") for i, t in enumerate((0, 7200, 14400))]
+    assert len(Detector([r]).process(events)) == 1

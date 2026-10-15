@@ -7,6 +7,9 @@ const AUDIT_LABELS = {
   'token.create': 'Sende-Token erstellt', 'token.delete': 'Sende-Token gesperrt', 'rule.create': 'Regel angelegt',
   'rule.update': 'Regel geändert', 'rule.delete': 'Regel gelöscht', 'alert.update': 'Alarm bearbeitet',
   'alert.bulk': 'Alarme bearbeitet', 'password.reset': 'Passwort zurückgesetzt', 'settings.update': 'Einstellungen geändert', 'source.delete': 'Quelle entfernt',
+  'agent.enroll': 'Agent registriert', 'agent.enroll.failed': 'Agent-Registrierung abgelehnt', 'agent.update': 'Agent geändert',
+  'agent.delete': 'Agent gelöscht', 'agent.settings': 'Agent-Einstellungen geändert', 'agent.enroll_key': 'Registrierungsschlüssel erneuert',
+  'm365.settings': 'Microsoft 365 eingerichtet', 'm365.delete': 'Microsoft-365-Verbindung entfernt',
 };
 
 function meter(used, total) {

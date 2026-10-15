@@ -4,3 +4,10 @@ __pycache__/
 .pytest_cache/
 .env
 backups/
+# Agent: lokal gebaute Programmdateien
+agent/agent
+agent/mini-siem-agent*
+agent-dist/
+dist/
+ci-data/
+siem*.log

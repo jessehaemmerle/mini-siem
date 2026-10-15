@@ -10,3 +10,8 @@ docs
 *.md
 !README.md
 .env
+agent/agent
+agent/mini-siem-agent*
+agent-dist
+dist
+ci-data

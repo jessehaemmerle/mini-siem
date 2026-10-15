@@ -6,6 +6,7 @@ on:
 
 jobs:
   test:
+    name: SIEM (Python)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -15,14 +16,72 @@ jobs:
       - run: pip install -r requirements-dev.txt
       - run: python -m pytest -q
 
-  docker:
+  agent:
+    name: Agent (Go)
     runs-on: ubuntu-latest
-    needs: test
+    defaults:
+      run:
+        working-directory: agent
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: agent/go.mod
+          cache-dependency-path: agent/go.sum
+      - name: Formatierung
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+      - name: Vet (Linux und Windows)
+        run: |
+          go vet ./...
+          GOOS=windows go vet ./...
+      - name: Tests
+        run: go test ./...
+      - name: Bauen für alle Plattformen
+        run: |
+          GOOS=linux GOARCH=amd64 go build -o /dev/null .
+          GOOS=linux GOARCH=arm64 go build -o /dev/null .
+          GOOS=windows GOARCH=amd64 go build -o /dev/null .
+
+  windows-agent:
+    name: Agent auf Windows (Ende-zu-Ende)
+    runs-on: windows-latest
+    needs: [test, agent]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: agent/go.mod
+          cache-dependency-path: agent/go.sum
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Go-Tests mit echten Ereignisprotokollen
+        working-directory: agent
+        run: go test -v ./...
+      - name: Agent bauen
+        shell: pwsh
+        run: |
+          $v = (Select-String -Path siem/__init__.py -Pattern '__version__ = "(.*)"').Matches[0].Groups[1].Value
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Push-Location agent
+          $env:CGO_ENABLED = '0'
+          go build -trimpath -ldflags "-s -w -X main.version=$v" -o ../dist/mini-siem-agent-windows-amd64.exe .
+          Pop-Location
+          Set-Content -Path dist/VERSION -Value $v -NoNewline
+      - run: pip install -r requirements.txt
+      - name: Installation per Einzeiler, Ereignis, Dienst, Deinstallation
+        shell: pwsh
+        run: ./scripts/ci-windows-agent.ps1
+
+  docker:
+    name: Docker-Image und Linux-Agent (Ende-zu-Ende)
+    runs-on: ubuntu-latest
+    needs: [test, agent]
     steps:
       - uses: actions/checkout@v4
       - name: Image bauen
         run: docker build -t mini-siem:ci .
-      - name: Container starten und prüfen
+      - name: Container starten
         run: |
           docker run -d --name siem -p 8080:8080 -e SIEM_ADMIN_PASSWORD=ci-passwort-123 mini-siem:ci
           for i in $(seq 1 30); do
@@ -31,3 +90,13 @@ jobs:
           done
           docker logs siem
           exit 1
+      - name: Agent-Programmdateien im Image
+        run: |
+          for p in linux-amd64 linux-arm64 windows-amd64; do
+            curl -fsS -o /tmp/$p http://localhost:8080/api/agent/download/$p
+            test "$(sha256sum /tmp/$p | cut -d' ' -f1)" = "$(curl -fsS http://localhost:8080/api/agent/download/$p.sha256)"
+          done
+      - name: Linux-Agent per Einzeiler (systemd, Journal, Docker)
+        env:
+          SIEM_PW: ci-passwort-123
+        run: ./scripts/ci-linux-agent.sh

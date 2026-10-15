@@ -1,17 +1,24 @@
 # Mini-SIEM
 
 Ein schlankes SIEM für kleine und mittlere Unternehmen: Logs von Servern, Netzwerkgeräten,
-Windows-Systemen und Docker-Containern zentral sammeln, durchsuchen und bei verdächtigen
-Ereignissen alarmieren – in **einem einzigen Docker-Container**, ohne externe Datenbank.
+Windows-Systemen, Docker-Containern und Microsoft 365 zentral sammeln, durchsuchen und bei
+verdächtigen Ereignissen alarmieren – in **einem einzigen Docker-Container**, ohne externe Datenbank.
 
-- **Sammeln:** Syslog (UDP/TCP/TLS), HTTP/JSON, Splunk-HEC-kompatibel (Docker-Logtreiber `splunk`),
-  Windows-Ereignisprotokolle über Fluent Bit oder NXLog
+- **Sammeln:**
+  - **Mini-SIEM-Agent** für Windows und Linux (Debian/Ubuntu), mit einem Befehl installiert und
+    zentral eingestellt: Ereignisprotokolle, systemd-Journal, Logdateien sowie Ausgaben und
+    Ereignisse aller Docker-Container auf dem Rechner (Start, Absturz, `docker exec`, privilegierte Container)
+  - **Microsoft 365** ohne zusätzliche Software: Anmeldungen und Konten (Entra ID), SharePoint,
+    OneDrive, Teams und Defender-Warnungen
+  - Syslog (UDP/TCP/TLS), HTTP/JSON, Splunk-HEC-kompatibel (Docker-Logtreiber `splunk`),
+    alternativ Fluent Bit oder NXLog für Windows
 - **Verstehen:** Erkennt automatisch Benutzer, IP-Adressen, Ports und Aktionen aus sshd, sudo,
   Firewalls (iptables/UFW, key=value) und Windows-Sicherheitsereignissen
 - **Suchen:** Volltext und Felder, Zeitverlauf, häufige Werte, CSV-Export
-- **Erkennen:** 16 mitgelieferte Regeln (SSH-Brute-Force, Password-Spraying, Portscan, neue Admins,
-  gelöschte Ereignisprotokolle …), eigene Regeln mit derselben Syntax wie die Suche, Test gegen
-  vorhandene Daten
+- **Erkennen:** 38 mitgelieferte Regeln (SSH-Brute-Force, Password-Spraying, Portscan, neue Admins,
+  gelöschte Ereignisprotokolle, privilegierte Container, MFA-Fatigue, vergebene Administratorrollen,
+  Massenlöschung in OneDrive, Defender-Warnungen …), eigene Regeln mit derselben Syntax wie die Suche,
+  Test gegen vorhandene Daten
 - **Bearbeiten:** Alarme übernehmen, kommentieren, schließen; Rollen *Nur lesen*, *Analyst*, *Administrator*
 - **Warten:** Eine Datei pro Tag, Aufbewahrung = alte Dateien löschen, Sicherung mit einem Befehl
 
@@ -36,10 +43,12 @@ Beim ersten Start wird ein Admin-Konto angelegt. Das Passwort steht im Log:
 docker compose logs siem | grep -A3 "Erstes Admin-Konto"
 ```
 
-Dann im Browser `http://<server>:8080` öffnen, anmelden und unter **Quellen → Neue Quelle anbinden**
-den Schritt-für-Schritt-Anleitungen folgen. Dort stehen fertige, kopierbare Konfigurationen für
-Linux (rsyslog), Netzwerkgeräte, Windows, Docker und eigene Anwendungen – bereits mit der richtigen
-Adresse und auf Wunsch mit einem frisch erstellten Token.
+Dann im Browser `http://<server>:8080` öffnen und anmelden. Unter **Quellen** geht es weiter:
+
+- **Agenten** – Installationsbefehl für Windows und Linux kopieren und auf dem Rechner ausführen
+- **Microsoft 365** – App-Registrierung anlegen (Anleitung auf der Seite), IDs eintragen, testen
+- **Neue Quelle anbinden** – kopierbare Konfigurationen für Netzwerkgeräte (Syslog), rsyslog,
+  Docker ohne Agent und eigene Anwendungen, bereits mit der richtigen Adresse
 
 **Zum Ausprobieren** ohne echte Quellen (sendet normalen Betrieb und einige Angriffe):
 
@@ -51,8 +60,59 @@ python3 scripts/demo_logs.py --host <server>
 
 | Port | Zweck |
 |------|-------|
-| 8080/tcp | Weboberfläche, REST-API, HTTP-Ingest, Splunk-HEC |
+| 8080/tcp | Weboberfläche, REST-API, HTTP-Ingest, Splunk-HEC, Agenten |
 | 514/udp, 514/tcp | Syslog (im Container 1514, siehe `docker-compose.yml`) |
+
+---
+
+## Agent für Windows und Linux
+
+Unter **Quellen → Agenten** steht je ein Befehl für Linux und Windows, in dem Adresse und
+Registrierungsschlüssel schon eingesetzt sind:
+
+```bash
+# Linux (Debian, Ubuntu – mit systemd), als root bzw. mit sudo
+curl -fsSL https://siem.firma.local/api/agent/install.sh | sudo bash -s -- --key enr_…
+```
+
+```powershell
+# Windows (ab Server 2016 / Windows 10), PowerShell als Administrator
+& ([scriptblock]::Create((irm https://siem.firma.local/api/agent/install.ps1))) -Key enr_…
+```
+
+Der Befehl lädt den Agenten aus dem SIEM-Container (Prüfsumme wird kontrolliert), registriert den
+Rechner und richtet den Dienst `mini-siem-agent` ein. Nach etwa einer Minute erscheint der Rechner in
+der Liste – mit Status, Version und dem, was er gerade erfasst.
+
+| | Windows | Linux |
+|---|---|---|
+| **Erfasst** | Sicherheit, System, Anwendung, PowerShell (Skriptblöcke), Defender, Sysmon (falls installiert) | systemd-Journal, frei wählbare Logdateien |
+| **Docker** | – | Ausgaben aller Container und Docker-Ereignisse über den Docker-Socket |
+| **Dienst** | Windows-Dienst mit automatischem Neustart | systemd-Unit mit Schutzoptionen |
+| **Protokoll** | `C:\ProgramData\MiniSIEM\agent.log` | `journalctl -u mini-siem-agent` |
+
+- **Zentral eingestellt:** Was gesammelt wird (Kanäle, Ereignis-IDs, Logdateien, Container), legt man
+  im SIEM fest – für alle Agenten oder einzeln. Die Agenten übernehmen Änderungen innerhalb einer Minute.
+- **Ausfallsicher:** Ist das SIEM nicht erreichbar, puffert der Agent bis zu 256 MB auf der Festplatte.
+- **Updates:** Nach einem Update des SIEM-Containers aktualisieren sich die Agenten selbst (abschaltbar).
+- **Status vor Ort:** `mini-siem-agent status`, entfernen mit `mini-siem-agent uninstall`.
+
+Docker-Container auf **anderen Servern** werden überwacht, indem dort der Linux-Agent installiert wird.
+
+## Microsoft 365
+
+Unter **Quellen → Microsoft 365** führt eine Anleitung durch die einmalige App-Registrierung in
+Microsoft Entra (etwa 10 Minuten). Benötigt werden diese Anwendungsberechtigungen:
+
+| Bereich | Berechtigung | Voraussetzung |
+|---|---|---|
+| Anmeldungen & Konten, SharePoint/OneDrive/Teams | Office 365 Management APIs → `ActivityFeed.Read` | Überwachungsprotokoll aktiv (Standard) |
+| Defender-Warnungen | Microsoft Graph → `SecurityAlert.Read.All` | ein Defender-Produkt, z. B. in Business Premium |
+| Anmeldedetails mit Land und Risiko (optional) | Microsoft Graph → `AuditLog.Read.All` | Entra ID P1 |
+
+Das SIEM fragt alle fünf Minuten ab. Microsoft stellt das Überwachungsprotokoll mit Verzögerung
+bereit – meist 30 Minuten bis einige Stunden, beim allerersten Abonnieren bis zu 12 Stunden.
+Details und Fehlersuche: [docs/betrieb.md](docs/betrieb.md#microsoft-365).
 
 ---
 
@@ -64,7 +124,7 @@ python3 scripts/demo_logs.py --host <server>
 | **Suche** | Events durchsuchen; Klick auf eine Zeile zeigt alle Felder, Klick auf Werte filtert |
 | **Alarme** | Alarme übernehmen, kommentieren, schließen (mit Ergebnis), Sammelaktionen |
 | **Regeln** | Erkennungsregeln an-/abschalten, bearbeiten, gegen vorhandene Daten testen |
-| **Quellen** | Welche Geräte senden? Wer ist still geworden? Anleitungen und Sende-Tokens |
+| **Quellen** | Welche Geräte senden? Wer ist still geworden? Agenten, Microsoft 365, Anleitungen, Sende-Tokens |
 | **Benutzer** | Konten und Rollen (nur Administratoren) |
 | **System** | Zustand, Speicherplatz, Aufbewahrung, Protokoll aller Änderungen |
 
@@ -146,6 +206,7 @@ Alle Einstellungen sind optional und werden in `.env` gesetzt. Aufbewahrung, Ruh
 | `SIEM_SYSLOG_ALLOW` | *(alle)* | Syslog nur aus diesen Netzen, z. B. `10.0.0.0/8,192.168.0.0/16` |
 | `SIEM_COOKIE_SECURE` | `false` | `true` bei Betrieb über HTTPS |
 | `SIEM_TRUSTED_PROXIES` | `127.0.0.1` | Reverse-Proxys, deren `X-Forwarded-For` vertraut wird |
+| `SIEM_PUBLIC_URL` | *(Aufrufadresse)* | Adresse, unter der Agenten das SIEM erreichen, z. B. `https://siem.firma.local` |
 | `SIEM_PUBLIC_SYSLOG_PORT` | `514` | Syslog-Port in den Anleitungen der Oberfläche |
 | `SIEM_SYSLOG_TLS_PORT` | `0` (aus) | Syslog über TLS, benötigt `SIEM_TLS_CERT` und `SIEM_TLS_KEY` |
 | `SIEM_QUERY_TIMEOUT` | `30` | maximale Dauer einer Suche in Sekunden |
@@ -158,13 +219,17 @@ Alle Einstellungen sind optional und werden in `.env` gesetzt. Aufbewahrung, Ruh
 ```
                     ┌──────────────────────── Container ─────────────────────────┐
  Syslog UDP/TCP ──▶ │ Empfänger ─┐                                                │
- HTTP / HEC ──────▶ │ REST-API ──┴▶ Warteschlange ▶ Parser ▶ Speicher ▶ Erkennung │
- Browser ─────────▶ │ Weboberfläche ◀──────── Suche ◀───┘          │            │
+ HTTP / HEC ──────▶ │ REST-API ──┤                                                │
+ Agenten ─────────▶ │ Agent-API ─┼▶ Warteschlange ▶ Parser ▶ Speicher ▶ Erkennung │
+ Microsoft 365 ◀─── │ Connector ─┘                       │          │            │
+ Browser ─────────▶ │ Weboberfläche ◀──────── Suche ◀────┘          │            │
                     │                                    Tagesdateien  Alarme     │
                     └─────────────── /data (Volume) ─────────────────────────────┘
 ```
 
 - Python 3 mit FastAPI, eine einzige Prozess-Instanz; Oberfläche ohne Build-Schritt (HTML/CSS/JS)
+- Agent in Go (`agent/`), eine einzelne Programmdatei ohne Abhängigkeiten; wird beim Bauen des
+  Images für Linux (amd64, arm64) und Windows (amd64) übersetzt und vom Container ausgeliefert
 - `data/siem.db` – Benutzer, Regeln, Alarme, Einstellungen, Änderungsprotokoll
 - `data/events/JJJJ-MM-TT.db` – Events eines Tages mit Volltextindex (SQLite FTS5)
 

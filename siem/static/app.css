@@ -459,7 +459,7 @@ button.barlist-row:hover .barlist-label { text-decoration: underline; text-under
 
 /* ================================================================== Tabellen */
 
-.table-scroll { overflow-x: auto; }
+.table-scroll { overflow-x: auto; position: relative; } /* relative: versteckte Beschriftungen (sr-only) bleiben im Scrollbereich */
 .table, .events { width: 100%; border-collapse: collapse; }
 .table th, .events th {
   text-align: left; font-size: var(--t-sm); font-weight: 620; color: var(--muted);
@@ -621,6 +621,57 @@ a.cell-title:hover { color: var(--ink); text-decoration: underline; }
 .steps { padding-left: 20px; margin: 0; }
 .steps li { margin-bottom: var(--s2); }
 .steps li::marker { font-weight: 650; color: var(--muted); }
+
+/* Agenten und Microsoft 365 */
+.fieldset { margin: 0 0 var(--s6); display: flex; flex-direction: column; gap: var(--s3); max-width: 1100px; }
+.fieldset > legend { font-weight: 650; font-size: var(--t-md); padding: 0; margin-bottom: var(--s3); }
+.fieldset > .hint { margin-top: calc(var(--s2) * -1); }
+.switch-field { display: flex; flex-direction: column; gap: 2px; }
+.switch-field .hint { padding-left: 48px; }
+.switch-field .check { gap: var(--s3); }
+.fieldset > .btn { align-self: flex-start; }
+.edit-table { table-layout: fixed; min-width: 740px; }
+.edit-table .w-name { width: 40%; }
+.edit-table .w-level { width: 19%; }
+.edit-table .w-ids { width: 14%; }
+.edit-table .w-act { width: 13%; }
+.edit-table th:first-child, .edit-table td:first-child { padding-left: 0; }
+.edit-table td { padding: 6px var(--s2); vertical-align: middle; }
+.edit-table input, .edit-table select { width: 100%; }
+.edit-table tbody tr:hover td { background: none; }
+.form-grid-2 { grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); max-width: 1000px; }
+.config-form textarea { max-width: 640px; font-family: var(--mono); font-size: var(--t-sm); }
+.config-form .field select { max-width: 360px; }
+.config-form .field input { max-width: 640px; }
+.install-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: var(--s5) var(--s6); margin-bottom: var(--s5); }
+.install-grid h3 { margin-bottom: var(--s1); }
+.install-grid .code { margin: var(--s2) 0; }
+.code-wrap pre { white-space: pre-wrap; word-break: break-all; }
+.facts .hint { margin-top: 2px; }
+.facts dd .btn { margin-top: var(--s2); }
+.agents-table { min-width: 860px; }
+.collectors { display: flex; flex-wrap: wrap; gap: 4px var(--s3); font-size: var(--t-sm); }
+.collector { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-2); }
+.collector::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--ok); }
+.collector-off { color: var(--ink); font-weight: 620; }
+.collector-off::before { background: none; border: 2px solid var(--sev-high); box-sizing: border-box; width: 8px; height: 8px; }
+.choice { display: flex; flex-direction: column; gap: var(--s2); }
+.choice > legend { font-weight: 620; font-size: var(--t-sm); margin-bottom: var(--s2); padding: 0; }
+.choice input[type='radio'] { width: 18px; height: 18px; min-height: 0; margin: 0; accent-color: var(--accent); }
+.choice-list { display: flex; flex-direction: column; gap: var(--s3); }
+.choice-item .hint { padding-left: 26px; max-width: 90ch; }
+.choice-item .hint .mono { display: block; font-size: var(--t-xs); margin-top: 2px; }
+.choice-label { font-weight: 620; }
+.check.noise { margin-top: var(--s2); }
+.perm-list { margin: var(--s1) 0 var(--s2); padding-left: 20px; }
+.perm-list li { margin-bottom: 2px; }
+.result-lines { list-style: none; margin: var(--s4) 0 0; padding: 0; max-width: 90ch; }
+.result-lines li { display: grid; grid-template-columns: 16px minmax(0, 1fr); gap: var(--s2); padding: 6px 0; border-bottom: 1px solid var(--line); }
+.result-lines li::before { content: ''; width: 9px; height: 9px; border-radius: 50%; margin-top: 7px; box-sizing: border-box; }
+.line-ok::before { background: var(--ok); }
+.line-err::before { border: 2px solid var(--sev-critical); }
+.line-err strong { color: var(--ink); }
+.test-results:empty { display: none; }
 
 .roles { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: var(--s1) var(--s5); margin: 0 0 var(--s6); color: var(--ink-2); max-width: 80ch; }
 .roles dt { font-weight: 650; color: var(--ink); }
