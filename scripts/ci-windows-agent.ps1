@@ -13,6 +13,24 @@ function Show-Logs {
     Get-Content (Join-Path $root 'siem.err.log') -ErrorAction SilentlyContinue | Select-Object -Last 80
     Write-Host '----- Agent-Protokoll -----'
     Get-Content (Join-Path $env:ProgramData 'MiniSIEM\agent.log') -ErrorAction SilentlyContinue | Select-Object -Last 80
+    Write-Host '----- Lesestand des Agenten (state.json) -----'
+    Get-Content (Join-Path $env:ProgramData 'MiniSIEM\state\state.json') -ErrorAction SilentlyContinue
+    if ($session) {
+        try {
+            Write-Host '----- Agent laut SIEM -----'
+            (Invoke-RestMethod -Uri "$base/api/agents" -WebSession $session -Headers $h).agents | ConvertTo-Json -Depth 6
+            $from = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - 7200
+            foreach ($q in @('input:agent', 'event_id:778', 'app:MiniSIEME2E')) {
+                $r = Invoke-RestMethod -Uri "$base/api/events" -WebSession $session -Headers $h -Body @{ q = $q; from = $from; limit = 15 }
+                Write-Host "----- Suche '$q': $(@($r.events).Count) Treffer (neueste zuerst) -----"
+                $r.events | ForEach-Object {
+                    $t = [DateTimeOffset]::FromUnixTimeMilliseconds([long]($_.ts * 1000)).UtcDateTime.ToString('HH:mm:ss')
+                    $msg = "$($_.message)"; if ($msg.Length -gt 90) { $msg = $msg.Substring(0, 90) }
+                    Write-Host "$t  $($_.app)  $($_.event_id)  $msg"
+                }
+            }
+        } catch { Write-Host "Diagnose fehlgeschlagen: $_" }
+    }
 }
 
 # ------------------------------------------------------------------ 1. SIEM starten
@@ -51,8 +69,11 @@ if ($svcInfo.StartMode -ne 'Auto') { throw 'Der Dienst startet nicht automatisch
 # ------------------------------------------------------------------ 3. Ereignis erzeugen und wiederfinden
 Start-Sleep -Seconds 8
 $marker = "Mini-SIEM-E2E-$([guid]::NewGuid().ToString('N'))"
-eventcreate /T ERROR /ID 778 /L APPLICATION /SO MiniSIEME2E /D $marker | Out-Null
-$deadline = (Get-Date).AddSeconds(120)
+eventcreate /T ERROR /ID 778 /L APPLICATION /SO MiniSIEME2E /D $marker
+if ($LASTEXITCODE -ne 0) { throw "eventcreate fehlgeschlagen (Code $LASTEXITCODE)." }
+$written = Get-WinEvent -FilterHashtable @{ LogName = 'Application'; Id = 778 } -MaxEvents 1
+Write-Host "Geschrieben: Record $($written.RecordId), Stufe $($written.Level), $($written.TimeCreated.ToUniversalTime().ToString('HH:mm:ss')) UTC, Quelle $($written.ProviderName): $($written.Message)"
+$deadline = (Get-Date).AddSeconds(180)
 $hit = $null
 do {
     Start-Sleep -Seconds 3

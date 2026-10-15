@@ -219,6 +219,7 @@ func (c *winlogCollector) Run(ctx context.Context) error {
 	retryMissing := time.Now()
 	missing := map[string]bool{}
 	for {
+		backlog := false
 		for _, ch := range c.channels {
 			if ctx.Err() != nil {
 				return nil
@@ -226,7 +227,8 @@ func (c *winlogCollector) Run(ctx context.Context) error {
 			if missing[ch.Name] && time.Now().Before(retryMissing) {
 				continue
 			}
-			err := c.readChannel(ctx, ch)
+			more, err := c.readChannel(ctx, ch)
+			backlog = backlog || more
 			switch {
 			case errors.Is(err, errChannelNotFound):
 				missing[ch.Name] = true
@@ -245,6 +247,9 @@ func (c *winlogCollector) Run(ctx context.Context) error {
 			c.missing = append(c.missing, name)
 		}
 		c.mu.Unlock()
+		if backlog {
+			continue // Rückstand (z. B. erster Start, nach Ausfall): sofort weiterlesen
+		}
 		select {
 		case <-ctx.Done():
 			return nil
@@ -253,13 +258,18 @@ func (c *winlogCollector) Run(ctx context.Context) error {
 	}
 }
 
-func (c *winlogCollector) readChannel(ctx context.Context, ch Channel) error {
+// maxPerRound begrenzt, wie viele Ereignisse ein Kanal pro Durchlauf liefern darf. Danach ist
+// der nächste Kanal dran – ein volles Sicherheitsprotokoll hält die anderen nicht auf.
+const maxPerRound = 1000
+
+// readChannel liest neue Ereignisse eines Kanals; more = es liegen vermutlich weitere vor.
+func (c *winlogCollector) readChannel(ctx context.Context, ch Channel) (more bool, err error) {
 	key := "winlog." + ch.Name
 	last, _ := strconv.ParseUint(c.state.Get(key), 10, 64)
 	query := winQuery(ch, last, 10*60*1000) // beim ersten Mal: die letzten 10 Minuten
 	rs, err := evtQuery(ch.Name, query)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer evtClose(rs)
 	exclude := map[int]bool{}
@@ -270,18 +280,21 @@ func (c *winlogCollector) readChannel(ctx context.Context, ch Channel) error {
 	buf := make([]byte, 16<<10)
 	read := 0
 	for {
+		if read >= maxPerRound {
+			return true, nil
+		}
 		n, err := evtNext(rs, handles)
 		if err != nil {
 			if errors.Is(err, errEvtQueryResultStale) {
-				return nil
+				return false, nil
 			}
-			return err
+			return false, err
 		}
 		if n == 0 {
 			if read == 0 && last > 0 {
 				c.checkCleared(ch.Name, key, last)
 			}
-			return nil
+			return false, nil
 		}
 		read += n
 		for i := 0; i < n; i++ {
@@ -299,7 +312,7 @@ func (c *winlogCollector) readChannel(ctx context.Context, ch Channel) error {
 					}
 					if !c.emit(ev) {
 						evtCloseRest(handles[i:n])
-						return nil
+						return false, nil
 					}
 				}
 				if rid > last {
@@ -310,7 +323,7 @@ func (c *winlogCollector) readChannel(ctx context.Context, ch Channel) error {
 			evtClose(h)
 		}
 		if ctx.Err() != nil {
-			return nil
+			return false, nil
 		}
 	}
 }
