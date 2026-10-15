@@ -450,3 +450,22 @@ def test_rules_m365_admin_files_defender():
                                  "status": {"errorCode": 0}, "location": {"countryOrRegion": "AT"}})
     assert _fires("m365-foreign-login", [foreign]) and not _fires("m365-foreign-login", [home])
     assert _rule("m365-foreign-login")["enabled"] is False
+
+
+def test_m365_expired_blob_is_skipped(admin_client):
+    c = admin_client
+    fake = FakeMicrosoft(time.time())
+    # ein gelistetes Paket, das es nicht mehr gibt, darf den Abruf nicht dauerhaft blockieren
+    fake.blobs["Audit.SharePoint"].insert(0, ("blob-abgelaufen", None))
+    original = fake.__call__
+
+    def http(method, url, headers, body, timeout):
+        if url.split("?")[0].endswith("/audit/blob-abgelaufen"):
+            return HttpResponse(404, {}, json.dumps({"error": {"code": "AF20051", "message": "expired"}}).encode())
+        return original(method, url, headers, body, timeout)
+
+    use_fake(c, http)
+    configure(c, sources={"entra": False, "files_teams": True, "defender": False})
+    status = c.core.m365.poll_once()
+    assert status["sources"]["files_teams"]["ok"] is True
+    assert status["sources"]["files_teams"]["last_events"] == 1

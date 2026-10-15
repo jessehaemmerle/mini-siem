@@ -515,6 +515,11 @@ class M365Connector:
                     if not cid or not uri or cid in done:
                         continue
                     resp = self._manage(cfg, "GET", str(uri))
+                    if resp.status in (404, 410):
+                        # abgelaufen oder entfernt: überspringen statt den Bereich dauerhaft zu blockieren
+                        log.warning("Microsoft 365: Inhaltspaket %s nicht mehr verfügbar – übersprungen", cid)
+                        self._mark_seen("audit", [cid])
+                        continue
                     if resp.status != 200:
                         raise _api_error(resp, AUDIT_PERMISSION)
                     total += self._submit("audit", self._audit_filter(cfg, resp.json()))

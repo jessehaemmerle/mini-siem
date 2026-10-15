@@ -1,7 +1,14 @@
 import { api } from '../api.js';
 import { ALERT_SEV, FIELD_LABELS, clear, confirmDialog, empty, field, fmt, h, select, sevBadge, toast } from '../ui.js';
 
-const GROUP_FIELDS = ['host', 'src_ip', 'dst_ip', 'user', 'app', 'event_id', 'dst_port', 'category', 'source_ip'];
+const GROUP_FIELDS = ['host', 'src_ip', 'dst_ip', 'user', 'app', 'event_id', 'dst_port', 'category', 'source_ip',
+  'data.container', 'data.team', 'data.title', 'data.target_user', 'data.country'];
+
+// Auswahl der Felder; ein anderes Feld der Regel (z. B. data.status) bleibt erhalten
+function fieldOptions(current) {
+  const fields = current && !GROUP_FIELDS.includes(current) ? [...GROUP_FIELDS, current] : GROUP_FIELDS;
+  return fields.map((f) => [f, FIELD_LABELS[f] || f]);
+}
 
 export function describe(r) {
   const win = fmt.duration(r.window);
@@ -96,8 +103,8 @@ async function renderEditor(main, ctx, id) {
   const modeSel = select([['each', 'bei jedem Treffer'], ['count', 'ab einer Anzahl von Treffern'], ['distinct', 'ab einer Anzahl verschiedener Werte']], mode);
   const threshold = h('input', { type: 'number', min: 1, value: Math.max(rule.threshold, 1), class: 'input-short' });
   const windowMin = h('input', { type: 'number', min: 1, max: 10080, value: Math.max(1, Math.round(rule.window / 60)), class: 'input-short' });
-  const groupSel = select([['', 'nicht getrennt (alle zusammen)'], ...GROUP_FIELDS.map((f) => [f, FIELD_LABELS[f]])], rule.group_by || '');
-  const distinctSel = select(GROUP_FIELDS.map((f) => [f, FIELD_LABELS[f]]), rule.distinct_field || 'dst_port');
+  const groupSel = select([['', 'nicht getrennt (alle zusammen)'], ...fieldOptions(rule.group_by)], rule.group_by || '');
+  const distinctSel = select(fieldOptions(rule.distinct_field), rule.distinct_field || 'dst_port');
   const enabled = h('input', { type: 'checkbox', checked: !!rule.enabled, id: 'rule-enabled' });
   const sentence = h('p', { class: 'rule-logic', 'aria-live': 'polite' });
   const testHours = select([[1, 'Letzte Stunde'], [24, 'Letzte 24 Stunden'], [168, 'Letzte 7 Tage'], [720, 'Letzte 30 Tage']], 24, { 'aria-label': 'Zeitraum für den Test' });

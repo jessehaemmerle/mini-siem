@@ -108,6 +108,8 @@ export const FIELD_LABELS = {
   event_id: 'Ereignis-ID', user: 'Benutzer', src_ip: 'Quell-IP', dst_ip: 'Ziel-IP', dst_port: 'Zielport',
   action: 'Aktion', input: 'Eingang', source_ip: 'Absender-IP', message: 'Nachricht', ts: 'Zeit',
   received: 'Empfangen',
+  'data.container': 'Container', 'data.team': 'Team', 'data.title': 'Titel der Warnung',
+  'data.target_user': 'Betroffenes Konto', 'data.country': 'Land',
 };
 
 // Pegel-Symbol: 1–4 Balken, damit Schweregrade auch ohne Farbsehen unterscheidbar sind
